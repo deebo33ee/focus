@@ -1164,7 +1164,21 @@ async function graphGetAll(url, token) {
   let next = url;
   while (next) {
     const response = await fetch(next, { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) throw new Error(`Microsoft Graph: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const responseBody = await response.text();
+      let errorDetails = responseBody;
+      if (responseBody) {
+        try {
+          const graphError = JSON.parse(responseBody).error;
+          if (graphError) {
+            errorDetails = [graphError.code, graphError.message].filter(Boolean).join(': ');
+          }
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+        }
+      }
+      throw new Error(`Microsoft Graph: ${response.status} ${errorDetails || response.statusText}`);
+    }
     const page = await response.json();
     values.push(...(page.value || []));
     next = page['@odata.nextLink'] || null;
