@@ -34,6 +34,8 @@ const msalClient = MS_TODO_CLIENT_ID
     cache: { cacheLocation: 'localStorage' },
   })
   : null;
+const MS_TODO_PENDING_KEY = `${STORAGE_KEY}-ms-todo-pending`;
+let msalInitialization;
 
 const freshState = () => ({
   displayName: 'صاحب المزرعة',
@@ -1121,11 +1123,12 @@ async function signInWithGoogle() {
 
 async function getMicrosoftToken() {
   if (!msalClient) throw new Error('أضف VITE_MS_TODO_CLIENT_ID في ملف البيئة أولًا.');
-  await msalClient.initialize();
-  let account = msalClient.getAllAccounts()[0];
+  const redirectResult = await initializeMsal();
+  let account = redirectResult?.account || msalClient.getActiveAccount() || msalClient.getAllAccounts()[0];
   if (!account) {
-    const result = await msalClient.loginPopup({ scopes: ['User.Read', 'Tasks.ReadWrite'] });
-    account = result.account;
+    localStorage.setItem(MS_TODO_PENDING_KEY, 'true');
+    await msalClient.loginRedirect({ scopes: ['User.Read', 'Tasks.ReadWrite'] });
+    return null;
   }
   try {
     const result = await msalClient.acquireTokenSilent({
@@ -1135,12 +1138,25 @@ async function getMicrosoftToken() {
     return result.accessToken;
   } catch (error) {
     if (error.name !== 'InteractionRequiredAuthError') throw error;
-    const result = await msalClient.acquireTokenPopup({
+    localStorage.setItem(MS_TODO_PENDING_KEY, 'true');
+    await msalClient.acquireTokenRedirect({
       account,
       scopes: ['User.Read', 'Tasks.ReadWrite'],
     });
-    return result.accessToken;
+    return null;
   }
+}
+
+async function initializeMsal() {
+  if (!msalInitialization) {
+    msalInitialization = (async () => {
+      await msalClient.initialize();
+      const result = await msalClient.handleRedirectPromise();
+      if (result?.account) msalClient.setActiveAccount(result.account);
+      return result;
+    })();
+  }
+  return msalInitialization;
 }
 
 async function graphGetAll(url, token) {
@@ -1168,6 +1184,7 @@ async function connectMicrosoftToDo() {
   setIntegrationStatus('#todo-status', 'جاري الاتصال بـ Microsoft To Do…');
   try {
     const token = await getMicrosoftToken();
+    if (!token) return;
     const lists = await graphGetAll('https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName', token);
     const taskSets = await Promise.all(lists.map(async (list) => {
       const tasks = await graphGetAll(
@@ -1193,6 +1210,7 @@ async function connectMicrosoftToDo() {
     );
     showToast('تم الاتصال بـ Microsoft To Do بنجاح ✓ اختار مهمة وحدد مدتها.');
   } catch (error) {
+    localStorage.removeItem(MS_TODO_PENDING_KEY);
     console.error('Could not load Microsoft To Do tasks.', error);
     button.textContent = 'ربط المهام';
     setIntegrationStatus('#todo-status', 'فشل الاتصال بـ Microsoft To Do. تحقق من الصلاحيات وحاول مجددًا.', false, true);
@@ -1205,9 +1223,14 @@ async function connectMicrosoftToDo() {
 async function restoreMicrosoftConnection() {
   if (!msalClient) return;
   try {
-    await msalClient.initialize();
-    const account = msalClient.getAllAccounts()[0];
+    const redirectResult = await initializeMsal();
+    const account = redirectResult?.account || msalClient.getActiveAccount() || msalClient.getAllAccounts()[0];
     if (!account) return;
+    if (localStorage.getItem(MS_TODO_PENDING_KEY)) {
+      localStorage.removeItem(MS_TODO_PENDING_KEY);
+      await connectMicrosoftToDo();
+      return;
+    }
     const result = await msalClient.acquireTokenSilent({
       account,
       scopes: ['User.Read', 'Tasks.ReadWrite'],
