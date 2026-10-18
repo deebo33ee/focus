@@ -162,6 +162,14 @@ function setText(selector, value) {
   if (element) element.textContent = value;
 }
 
+function setIntegrationStatus(selector, message, connected = false, error = false) {
+  const element = $(selector);
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle('is-connected', connected);
+  element.classList.toggle('is-error', error);
+}
+
 function sumTrees(inventory = {}) {
   return Object.values(inventory).reduce((total, count) => total + Number(count || 0), 0);
 }
@@ -1037,14 +1045,23 @@ async function initializeOnline() {
     }
     userId = session.user.id;
     const isGoogleLinked = session.user.identities?.some((identity) => identity.provider === 'google');
-    setText('#google-status', isGoogleLinked ? 'حساب Google مربوط.' : 'حسابك التجريبي شغال على هذا الجهاز.');
+    setIntegrationStatus(
+      '#google-status',
+      isGoogleLinked ? 'تم الاتصال بحساب Google ✓' : 'غير متصل — اربط حسابك لحفظ المزرعة.',
+      Boolean(isGoogleLinked),
+    );
     setText('#google-connect', isGoogleLinked ? 'مرتبط' : 'حفظ المزرعة');
+    if (isGoogleLinked && localStorage.getItem(`${STORAGE_KEY}-google-pending`) === 'true') {
+      localStorage.removeItem(`${STORAGE_KEY}-google-pending`);
+      showToast('تم الاتصال بحساب Google بنجاح ✓');
+    }
     const { error: initError } = await supabase.rpc('initialize_private_farm');
     if (initError) throw initError;
     await loadFarmData();
     $('#connection-status').textContent = 'متصل · مزامنة مباشرة';
   } catch (error) {
     console.error('Supabase initialization failed.', error);
+    setIntegrationStatus('#google-status', 'تعذر التحقق من اتصال Google.', false, true);
     $('#connection-status').textContent = 'تعذر الاتصال';
     showToast('تعذر الاتصال بخدمة المزامنة. راجع إعداد Supabase والاتصال.', true);
   }
@@ -1057,35 +1074,47 @@ async function linkGoogleAccount() {
   }
   await onlineReady;
   if (!userId) {
+    setIntegrationStatus('#google-status', 'تعذر الاتصال — سجّل الدخول للمزامنة أولًا.', false, true);
     showToast('تعذر تهيئة الحساب. راجع Supabase وحاول تاني.', true);
     return;
   }
+  setIntegrationStatus('#google-status', 'جاري الاتصال بحساب Google…');
   try {
     const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',
       options: { redirectTo: window.location.href },
     });
     if (error) throw error;
-    if (data.url) window.location.assign(data.url);
+    if (data.url) {
+      localStorage.setItem(`${STORAGE_KEY}-google-pending`, 'true');
+      window.location.assign(data.url);
+    }
   } catch (error) {
     console.error('Could not link the Google account.', error);
+    setIntegrationStatus('#google-status', 'فشل الاتصال بحساب Google. تحقق من إعدادات المزوّد.', false, true);
     showToast(error.message || 'تعذر ربط حساب Google. راجع تفعيل المزود وإعدادات الربط في Supabase.', true);
   }
 }
 
 async function signInWithGoogle() {
   if (!syncEnabled) {
+    setIntegrationStatus('#google-status', 'غير متاح — أضف إعدادات Supabase أولًا.', false, true);
     showToast('تسجيل الدخول بـ Google يحتاج إعداد مشروع Supabase أولًا.', true);
     return;
   }
+  setIntegrationStatus('#google-status', 'جاري الاتصال بحساب Google…');
   try {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
     });
     if (error) throw error;
+    localStorage.setItem(`${STORAGE_KEY}-google-pending`, 'true');
+    if (!data.url) setIntegrationStatus('#google-status', 'جارٍ التحقق من اتصال Google…');
   } catch (error) {
     console.error('Could not sign in with Google.', error);
+    localStorage.removeItem(`${STORAGE_KEY}-google-pending`);
+    setIntegrationStatus('#google-status', 'فشل الاتصال بحساب Google. تحقق من إعدادات المزوّد.', false, true);
     showToast(error.message || 'تعذر تسجيل الدخول بـ Google. راجع إعدادات المزوّد.', true);
   }
 }
@@ -1129,12 +1158,14 @@ async function graphGetAll(url, token) {
 
 async function connectMicrosoftToDo() {
   if (!msalClient) {
+    setIntegrationStatus('#todo-status', 'غير متاح — أضف معرّف تطبيق Microsoft أولًا.', false, true);
     showToast('أضف معرّف تطبيق Microsoft إلى .env.local حسب دليل التشغيل.', true);
     return;
   }
   const button = $('#todo-connect');
   button.disabled = true;
   button.textContent = 'جاري الربط…';
+  setIntegrationStatus('#todo-status', 'جاري الاتصال بـ Microsoft To Do…');
   try {
     const token = await getMicrosoftToken();
     const lists = await graphGetAll('https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName', token);
@@ -1155,14 +1186,47 @@ async function connectMicrosoftToDo() {
     });
     $('#todo-panel').hidden = false;
     button.textContent = 'تحديث المهام';
-    setText('#todo-status', `اتربطت Microsoft To Do · ${formatArabicNumber(tasks.length)} مهمة متاحة.`);
-    showToast('اتربطت مهامك. اختار مهمة وحدد مدتها.');
+    setIntegrationStatus(
+      '#todo-status',
+      `تم الاتصال بـ Microsoft To Do ✓ · ${formatArabicNumber(tasks.length)} مهمة متاحة.`,
+      true,
+    );
+    showToast('تم الاتصال بـ Microsoft To Do بنجاح ✓ اختار مهمة وحدد مدتها.');
   } catch (error) {
     console.error('Could not load Microsoft To Do tasks.', error);
     button.textContent = 'ربط المهام';
+    setIntegrationStatus('#todo-status', 'فشل الاتصال بـ Microsoft To Do. تحقق من الصلاحيات وحاول مجددًا.', false, true);
     showToast(error.message || 'تعذر الاتصال بـ Microsoft To Do.', true);
   } finally {
     button.disabled = false;
+  }
+}
+
+async function restoreMicrosoftConnection() {
+  if (!msalClient) return;
+  try {
+    await msalClient.initialize();
+    const account = msalClient.getAllAccounts()[0];
+    if (!account) return;
+    const result = await msalClient.acquireTokenSilent({
+      account,
+      scopes: ['User.Read', 'Tasks.ReadWrite'],
+    });
+    const lists = await graphGetAll(
+      'https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName',
+      result.accessToken,
+    );
+    setIntegrationStatus(
+      '#todo-status',
+      `تم الاتصال بـ Microsoft To Do ✓ · ${formatArabicNumber(lists.length)} قائمة متاحة.`,
+      true,
+    );
+    $('#todo-connect').textContent = 'تحديث المهام';
+  } catch (error) {
+    if (error.name !== 'InteractionRequiredAuthError') {
+      console.error('Could not restore Microsoft To Do connection.', error);
+      setIntegrationStatus('#todo-status', 'تعذر التحقق من اتصال Microsoft To Do. أعد الربط.', false, true);
+    }
   }
 }
 
@@ -1356,6 +1420,7 @@ initializeDate();
 render();
 resumePersistedTimer();
 if (syncEnabled) onlineReady = initializeOnline();
+if (msalClient) void restoreMicrosoftConnection();
 
 const inviteCode = new URLSearchParams(window.location.search).get('join');
 if (inviteCode && syncEnabled) {
