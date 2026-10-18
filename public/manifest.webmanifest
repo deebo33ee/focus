@@ -1,0 +1,14 @@
+{
+  "name": "جذور — ركّز وازرع",
+  "short_name": "جذور",
+  "description": "مؤقت تركيز ومزرعة تنمو معك ومع أصحابك.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5ee",
+  "theme_color": "#f6f5ee",
+  "icons": [
+    { "src": "/leaf.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

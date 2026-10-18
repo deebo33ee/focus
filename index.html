@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f5ee" />
+    <meta name="description" content="ركّز، ازرع شجرتك، وخلي مزرعتك تكبر مع أصحابك." />
+    <link rel="icon" type="image/svg+xml" href="/leaf.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>جذور — ركّز وازرع</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="جذور - الصفحة الرئيسية">
+          <span class="brand-mark">ج</span>
+          <span class="brand-copy"><strong>جذور</strong><small>وقتٌ ينمو</small></span>
+        </a>
+        <div class="nav-caption">مساحتك</div>
+        <nav class="primary-nav" aria-label="التنقل الرئيسي">
+          <button class="nav-link active" data-page="focus"><span class="nav-icon">◷</span> جلسة التركيز</button>
+          <button class="nav-link" data-page="my-garden"><span class="nav-icon">♧</span> مزرعتي</button>
+          <button class="nav-link" data-page="shared-garden"><span class="nav-icon">♧</span> مزرعتنا <span class="nav-count" id="nav-friends">٣</span></button>
+          <button class="nav-link" data-page="settings"><span class="nav-icon">⚙</span> الإعدادات</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="mini-note"><span class="mini-note-icon">✳</span><p>كل دقيقة تركيز<br /><strong>تسيب أثر حلو.</strong></p></div>
+          <div class="profile"><div class="avatar" id="profile-avatar">ن</div><div><strong id="profile-name">صاحب المزرعة</strong><small id="connection-status">وضع تجريبي</small></div><span class="profile-menu">···</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="mobile-brand"><span class="brand-mark">ج</span><strong>جذور</strong></div>
+          <div class="breadcrumb"><span id="date-label">يوم جديد، فرصة جديدة</span><span class="date-dot">•</span><span id="date-short"></span></div>
+          <button class="share-top-button" id="top-share"><span>↗</span> <span class="share-label">ادعُ أصحابك</span></button>
+        </header>
+
+        <section class="page-view active" id="page-focus">
+          <div class="welcome-row">
+            <div><p class="eyebrow"><span class="eyebrow-spark">✳</span> مساحتك الهادية</p><h1>أهلًا بيك، <span id="greeting-name">يا بطل</span> <span class="wave">✦</span></h1><p class="welcome-subtitle">خد نفس.. ركّز في اللي قدامك، وسيب الباقي علينا.</p></div>
+            <div class="streak-chip"><span class="streak-fire">✹</span><span><strong id="streak-value">٠</strong><small>شجرة نمت</small></span></div>
+          </div>
+
+          <div class="focus-layout">
+            <section class="timer-card">
+              <div class="timer-heading"><div><span class="live-dot"></span><span id="timer-mode-label">وقت التركيز</span></div><div class="timer-heading-actions"><button class="icon-button" id="timer-skip" aria-label="تخطي الاستراحة" title="تخطي الاستراحة">↷</button><button class="icon-button" id="timer-reset" aria-label="إعادة ضبط المؤقت" title="إعادة ضبط">↺</button></div></div>
+              <div class="timer-orbit" id="timer-orbit">
+                <div class="orbit-decoration orbit-one"></div><div class="orbit-decoration orbit-two"></div>
+                <div class="timer-center"><span class="timer-leaf">♧</span><strong id="timer-display">25:00</strong><span id="timer-caption">كل حاجة بتبدأ بخطوة</span></div>
+              </div>
+              <div class="task-planner">
+                <label for="task-minutes">مدة المهمة</label>
+                <div class="task-planner-controls"><input id="task-minutes" type="number" min="1" max="1440" value="60" inputmode="numeric" /><span>دقيقة</span><button id="calculate-plan">احسب الخطة</button></div>
+                <p class="plan-summary" id="plan-summary" aria-live="polite"></p>
+                <p class="selected-task-title" id="selected-task-title">اكتب وقت المهمة، وسيقسّمه جذور لجلسات واستراحات.</p>
+              </div>
+              <button class="timer-action" id="timer-toggle"><span class="action-icon">▶</span><span>ابدأ التركيز</span></button>
+              <p class="timer-hint" id="timer-hint">تقدر توقف وتكمل في أي وقت</p>
+            </section>
+
+            <section class="garden-preview-card">
+              <div class="section-heading"><div><p class="eyebrow">مساحتك الخاصة</p><h2>مزرعتي الصغيرة <span>♧</span></h2></div><button class="text-link" data-open="my-garden">شوفها كلها <span>←</span></button></div>
+              <div class="garden-landscape personal-landscape" id="personal-landscape">
+                <div class="sun-disc"></div><div class="cloud cloud-a"></div><div class="cloud cloud-b"></div>
+                <div class="hill hill-back"></div><div class="hill hill-front"></div>
+                <div class="garden-trees" id="personal-trees" aria-label="أشجار مزرعتك"></div>
+                <div class="landscape-label"><span>مزرعتك بتكبر مع كل جلسة</span><span class="landscape-spark">✳</span></div>
+              </div>
+              <div class="garden-stats"><div><span class="stat-icon tree-stat">♧</span><span><strong id="personal-tree-count">٠</strong><small>شجرة</small></span></div><div><span class="stat-icon time-stat">◷</span><span><strong id="personal-focus-time">٠ د</strong><small>وقت تركيز</small></span></div><div><span class="stat-icon session-stat">✳</span><span><strong id="personal-session-count">٠</strong><small>جلسة مكتملة</small></span></div></div>
+            </section>
+          </div>
+
+          <section class="quote-banner"><span class="quote-mark">“</span><p>مش لازم تخلص كل حاجة النهارده. المهم تزرع بذرة.</p><span class="quote-leaf">♧</span></section>
+        </section>
+
+        <section class="page-view" id="page-my-garden">
+          <div class="page-title-row"><div><p class="eyebrow">مساحتك الخاصة</p><h1>مزرعتي الصغيرة <span class="title-leaf">♧</span></h1><p class="welcome-subtitle">كل شجرة هنا حكاية وقت ركّزت فيه على نفسك.</p></div><button class="outline-button" data-page="focus">◷ <span>جلسة جديدة</span></button></div>
+          <div class="garden-large-card">
+            <div class="garden-actions" style="display:flex;gap:10px;align-items:center;justify-content:flex-start;margin-bottom:10px;">
+              <button class="outline-button" data-page="focus">◷ <span>جلسة جديدة</span></button>
+              <button id="toggle-3d" class="outline-button" type="button">عرض 3D</button>
+            </div>
+            <div class="garden-landscape full-landscape personal-landscape" id="personal-landscape-full"><div class="sun-disc"></div><div class="cloud cloud-a"></div><div class="cloud cloud-b"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><div class="garden-trees" id="personal-trees-full"></div><div class="landscape-label"><span>مزرعتك بتنمو على مهلك ✨</span></div></div>
+            <div id="garden-3d" class="garden-3d" hidden aria-hidden="true"><span id="garden-3d-count" class="garden-3d-count" aria-live="polite"></span></div>
+          </div>
+          <div class="detail-stats" id="personal-detail-stats"></div>
+          <div class="info-strip"><span class="info-icon">✳</span><span>وقت تركيزك بيتراكم للشجرة اللي اخترتها، وكل نوع له وقت نمو مختلف.</span><button data-page="settings">اختار شجرة <span>←</span></button></div>
+        </section>
+
+        <section class="page-view" id="page-shared-garden">
+          <div class="page-title-row"><div><p class="eyebrow">مع بعض أحلى</p><h1>مزرعتنا المشتركة <span class="title-leaf">♧</span></h1><p class="welcome-subtitle">كل تركيز منكم بيساعد المزرعة تكبر.</p></div><button class="outline-button" id="share-invite">↗ <span>اعزم أصحابك</span></button></div>
+          <div class="shared-garden-card">
+            <div class="shared-garden-top"><div class="shared-title"><span class="shared-icon">♧</span><div><h2 id="shared-farm-name">مزرعة الصحاب</h2><p><span class="live-dot"></span> <span id="shared-member-count">٣ أصدقاء</span> بيزرعوا سوا</p></div></div><button class="quiet-icon-button" id="copy-invite" aria-label="نسخ رابط الدعوة" title="نسخ رابط الدعوة">↗</button></div>
+            <div class="garden-landscape shared-landscape" id="shared-landscape"><div class="sun-disc"></div><div class="cloud cloud-a"></div><div class="cloud cloud-b"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><div class="garden-trees" id="shared-trees"></div><div class="landscape-label"><span>لما نركّز سوا، بنكبر سوا</span><span class="landscape-spark">✳</span></div></div>
+            <div class="shared-bottom"><div class="garden-stats shared-stats"><div><span class="stat-icon tree-stat">♧</span><span><strong id="shared-tree-count">٠</strong><small>شجرة سوا</small></span></div><div><span class="stat-icon time-stat">◷</span><span><strong id="shared-focus-time">٠ د</strong><small>دقيقة تركيز</small></span></div></div><div class="friend-avatars" id="friend-avatars"></div></div>
+          </div>
+          <div class="shared-callout"><span class="callout-icon">✦</span><div><strong>جلسة واحدة منك تفرق!</strong><p>فعّل المشاركة عشان وقتك يضيف تقدمًا للشجرة المختارة في المزرعة المشتركة كمان.</p></div><label class="switch"><input type="checkbox" id="share-focus-toggle" /><span class="switch-slider"></span><span class="switch-copy">ازرع في مزرعتنا</span></label></div>
+          <div class="invite-empty" id="invite-empty"><span>♡</span><p>لسه مفيش مزرعة مشتركة — اعملوا واحدة وابدأوا تزرعوا سوا.</p><button id="create-farm">إنشاء مزرعة مشتركة</button><button class="join-text" id="join-farm">عندي رمز دعوة</button></div>
+        </section>
+
+        <section class="page-view" id="page-settings">
+          <div class="page-title-row"><div><p class="eyebrow">على مزاجك</p><h1>إعدادات التركيز <span class="title-leaf">⚙</span></h1><p class="welcome-subtitle">ظبّط وقتك واختار الشجرة اللي عايز تزرعها.</p></div><button class="outline-button" data-page="focus">◷ <span>ارجع للتركيز</span></button></div>
+          <section class="settings-card">
+            <div class="settings-heading"><span class="settings-icon">◷</span><div><h2>جلساتك واستراحاتك</h2><p>المؤقّت هيقسم وقت المهمة حسب المدة اللي تختارها.</p></div></div>
+            <div class="settings-fields">
+              <label class="setting-field"><span>مدة جلسة التركيز</span><div><input id="setting-focus-minutes" type="number" min="1" max="180" value="25" inputmode="numeric" /><small>دقيقة</small></div><small>من دقيقة إلى ٣ ساعات</small></label>
+              <label class="setting-field"><span>مدة الاستراحة</span><div><input id="setting-break-minutes" type="number" min="1" max="60" value="5" inputmode="numeric" /><small>دقيقة</small></div><small>بعد كل جلسة، ما عدا الأخيرة</small></label>
+            </div>
+            <div class="settings-note"><span>✦</span><p id="settings-plan-preview">مهمة ٦٠ دقيقة = ٣ جلسات وترتيب استراحات تلقائي.</p></div>
+          </section>
+          <section class="settings-card tree-picker-card">
+            <div class="settings-heading"><span class="settings-icon tree-settings-icon">♧</span><div><h2>اختار شجرتك</h2><p>كل نوع له وقت نمو خاص. تركيزك يتراكم للشجرة المختارة.</p></div></div>
+            <div class="selected-tree-progress"><span id="selected-tree-progress">تقدم شجرتك</span><span class="tree-progress-track"><span id="selected-tree-progress-bar"></span></span></div>
+            <div class="tree-catalog" id="tree-catalog"></div>
+          </section>
+          <section class="settings-card integrations-card">
+            <div class="settings-heading"><span class="settings-icon">↗</span><div><h2>حساباتك ومهامك</h2><p>اربط خدماتك عشان تحتفظ بمزرعتك وتتابع مهامك.</p></div></div>
+            <div class="integration-row"><span class="integration-logo google-logo">G</span><div><strong>حساب Google</strong><small id="google-status">حافظ على حسابك ومزرعتك عبر أجهزتك.</small></div><button id="google-connect" class="integration-button">حفظ المزرعة</button><button id="google-login" class="integration-button">دخول</button></div>
+            <div class="integration-row"><span class="integration-logo microsoft-logo">▦</span><div><strong>Microsoft To Do</strong><small id="todo-status">هات مهامك وحدد وقتًا لها.</small></div><button id="todo-connect" class="integration-button">ربط المهام</button></div>
+            <div class="todo-panel" id="todo-panel" hidden><label for="todo-task-select">اختار مهمة</label><select id="todo-task-select"><option value="">اختار مهمة من القائمة</option></select><label class="todo-complete-option"><input type="checkbox" id="todo-complete-on-finish" /> علّمها مكتملة لما تخلص وقت المهمة</label><button id="todo-use-task" class="integration-button" disabled>استخدم المهمة كهدف</button></div>
+            <p class="integration-footnote" id="integration-help">تفعيل Google وMicrosoft يتطلب إضافة معرّفات التطبيقات في إعدادات المشروع. تفاصيل الإعداد في دليل التشغيل.</p>
+          </section>
+        </section>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </main>
+    </div>
+    <nav class="mobile-nav" aria-label="التنقل">
+      <button class="mobile-nav-item active" data-page="focus"><span>◷</span><small>التركيز</small></button>
+      <button class="mobile-nav-item" data-page="my-garden"><span>♧</span><small>مزرعتي</small></button>
+      <button class="mobile-nav-item" data-page="shared-garden"><span>♧</span><small>مزرعتنا</small></button>
+      <button class="mobile-nav-item" data-page="settings"><span>⚙</span><small>الإعدادات</small></button>
+    </nav>
+    <dialog class="app-dialog" id="name-dialog"><form method="dialog"><button class="dialog-close" value="cancel" aria-label="إغلاق">×</button><span class="dialog-symbol">✳</span><h2 id="name-dialog-title">اسمك في المزرعة</h2><p id="name-dialog-copy">خلي أصحابك يعرفوا إن الشجرة دي منك.</p><label for="display-name-input">اسمك</label><input id="display-name-input" maxlength="24" placeholder="مثلاً: نور" required /><div class="dialog-actions"><button class="primary-dialog-button" id="name-dialog-submit" value="submit">كمّل</button><button class="secondary-dialog-button" value="cancel">إلغاء</button></div></form></dialog>
+    <dialog class="app-dialog" id="join-dialog"><form method="dialog"><button class="dialog-close" value="cancel" aria-label="إغلاق">×</button><span class="dialog-symbol">↗</span><h2>انضم لمزرعة أصحابك</h2><p>اكتب رمز الدعوة اللي صاحبك بعتهولك.</p><label for="invite-code-input">رمز الدعوة</label><input id="invite-code-input" maxlength="12" placeholder="مثال: ABC123XY" autocomplete="off" required /><label for="join-name-input">اسمك في المزرعة</label><input id="join-name-input" maxlength="24" placeholder="اسمك" required /><div class="dialog-actions"><button class="primary-dialog-button" id="join-dialog-submit" value="submit">انضم للمزرعة</button><button class="secondary-dialog-button" value="cancel">إلغاء</button></div></form></dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
