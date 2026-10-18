@@ -1135,7 +1135,7 @@ async function getMicrosoftToken() {
       account,
       scopes: ['User.Read', 'Tasks.ReadWrite'],
     });
-    return result.accessToken;
+    return requireMicrosoftAccessToken(result.accessToken);
   } catch (error) {
     if (error.name !== 'InteractionRequiredAuthError') throw error;
     localStorage.setItem(MS_TODO_PENDING_KEY, 'true');
@@ -1159,7 +1159,15 @@ async function initializeMsal() {
   return msalInitialization;
 }
 
+function requireMicrosoftAccessToken(token) {
+  if (typeof token !== 'string' || !token.trim()) {
+    throw new Error('لم تُرجع Microsoft رمز وصول. أعد ربط حساب Microsoft ثم حاول مجددًا.');
+  }
+  return token;
+}
+
 async function graphGetAll(url, token) {
+  requireMicrosoftAccessToken(token);
   const values = [];
   let next = url;
   while (next) {
@@ -1271,6 +1279,7 @@ async function completeMicrosoftTask(task) {
   try {
     const token = await getMicrosoftToken();
     if (!token) return;
+    requireMicrosoftAccessToken(token);
     const response = await fetch(
       `https://graph.microsoft.com/v1.0/me/todo/lists/${encodeURIComponent(task.listId)}/tasks/${encodeURIComponent(task.id)}`,
       {
