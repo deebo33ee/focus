@@ -1256,6 +1256,7 @@ async function restoreMicrosoftConnection() {
 async function completeMicrosoftTask(task) {
   try {
     const token = await getMicrosoftToken();
+    if (!token) return;
     const response = await fetch(
       `https://graph.microsoft.com/v1.0/me/todo/lists/${encodeURIComponent(task.listId)}/tasks/${encodeURIComponent(task.id)}`,
       {
