@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { createGarden3D } from './garden3d.js';
 import './style.css';
 
 const STORAGE_KEY = 'jozoor-focus-garden-v1';
@@ -90,6 +91,7 @@ let realtimeChannel = null;
 let realtimeFarmId = null;
 let onlineReady = Promise.resolve();
 let confirmationResolver = null;
+let garden3d = null;
 
 // Three.js 3D garden state
 let threeInitialized = false;
@@ -654,7 +656,7 @@ function render() {
   renderTaskPlan();
   renderDetailStats();
   renderTimer();
-  if (threeInitialized) update3DGarden();
+  if (garden3d) garden3d.setTreeInventory(personal.tree_inventory);
   saveState();
 }
 
@@ -1964,8 +1966,10 @@ if (toggle3dBtn) {
       if (landscape) { landscape.setAttribute('hidden', ''); landscape.setAttribute('aria-hidden','true'); }
       toggle3dBtn.textContent = 'عرض المزرعة المسطّح';
       const container = $('#garden-3d');
-      if (container) init3DGarden(container);
-      update3DGarden();
+      if (container) {
+        if (!garden3d) garden3d = createGarden3D(container);
+        garden3d.setTreeInventory(state.privateFarm.tree_inventory);
+      }
     }
   });
 }
