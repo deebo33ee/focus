@@ -24,18 +24,20 @@ const TREE_CATALOG = [
 ];
 const freshState = () => ({
   displayName: 'صاحب المزرعة',
-  privateFarm: { sessions: 0, totalSeconds: 0, tree_inventory: {}, tree_progress: {} },
+  privateFarm: { sessions: 0, totalSeconds: 0, points: 0, tree_inventory: {}, tree_progress: {} },
   sharedFarm: null,
   members: [],
   personalTasks: [],
   sharedTasks: [],
+  pendingPointAwards: [],
+  selectedFocusTask: null,
   shareFocus: false,
   settings: { focusMinutes: 25, breakMinutes: 5 },
   taskTargetMinutes: 60,
   selectedTree: 'oak',
   timer: {
     status: 'idle', phase: 'focus', durationSeconds: 1500, remainingSeconds: 1500,
-    deadline: null, plan: null,
+    deadline: null, plan: null, phaseId: null, lastAwardedMinute: 0,
   },
 });
 
@@ -61,6 +63,8 @@ function readState() {
       sharedFarm: savedSharedFarm,
       taskTargetMinutes: Math.min(1440, Math.max(1, Number(stored.taskTargetMinutes) || 60)),
       selectedTree: TREE_CATALOG.some((tree) => tree.id === stored.selectedTree) ? stored.selectedTree : 'oak',
+      pendingPointAwards: Array.isArray(stored.pendingPointAwards) ? stored.pendingPointAwards : [],
+      selectedFocusTask: stored.selectedFocusTask || null,
       timer: {
         ...defaults.timer,
         ...previousTimer,
@@ -68,6 +72,8 @@ function readState() {
         remainingSeconds: previousTimer.remainingSeconds ?? durationSeconds,
         phase: previousTimer.phase || 'focus',
         plan: previousTimer.plan || null,
+        phaseId: previousTimer.phaseId || null,
+        lastAwardedMinute: Number(previousTimer.lastAwardedMinute) || 0,
       },
     };
   } catch (error) {
@@ -548,6 +554,8 @@ function render() {
   setText('#personal-tree-count', formatArabicNumber(treeCount));
   setText('#personal-focus-time', formatFocusTime(personal.totalSeconds || 0));
   setText('#personal-session-count', formatArabicNumber(personal.sessions || 0));
+  setText('#focus-points-balance', `${formatArabicNumber(personal.points || 0)} نقطة`);
+  setText('#shop-points-balance', `${formatArabicNumber(personal.points || 0)} نقطة`);
   setText('#shared-tree-count', formatArabicNumber(sharedTreeCount));
   setText('#shared-focus-time', formatFocusTime(shared?.total_seconds || 0));
   setText('#shared-farm-name', shared?.name || 'مزرعة الصحاب');
@@ -583,6 +591,7 @@ function render() {
   if (document.activeElement !== $('#task-minutes')) $('#task-minutes').value = state.taskTargetMinutes;
   renderTreeCatalog();
   renderGardenTasks();
+  renderFocusTasks();
   renderSharedMembers();
   renderTaskPlan();
   renderDetailStats();
@@ -666,6 +675,17 @@ function renderTaskGroup(targetId, tasks, scope, period) {
     body.append(title, details);
     row.append(body);
 
+    if (!task.completed_at) {
+      const focusButton = document.createElement('button');
+      focusButton.type = 'button';
+      focusButton.className = 'task-action focus-task-action';
+      focusButton.textContent = 'ركّز عليها';
+      focusButton.dataset.focusTask = task.id;
+      focusButton.dataset.taskScope = scope;
+      focusButton.setAttribute('aria-pressed', String(state.selectedFocusTask?.id === task.id));
+      row.append(focusButton);
+    }
+
     const ownAssignment = assignments.find((assignment) => assignment.user_id === userId);
     if (!task.completed_at && ownAssignment && !ownAssignment.completed_at) {
       const completeButton = document.createElement('button');
@@ -710,6 +730,55 @@ function renderGardenTasks() {
   renderTaskGroup('#personal-week-tasks', state.personalTasks || [], 'personal', 'week');
   renderTaskGroup('#shared-day-tasks', state.sharedTasks || [], 'shared', 'day');
   renderTaskGroup('#shared-week-tasks', state.sharedTasks || [], 'shared', 'week');
+}
+
+function renderFocusTasks() {
+  const container = $('#focus-day-tasks');
+  container.replaceChildren();
+  const tasks = [
+    ...(state.personalTasks || []).filter((task) => task.period === 'day' && !task.completed_at && isWithinTaskPeriod(task)),
+    ...(state.sharedTasks || []).filter((task) => (
+      task.period === 'day'
+      && !task.completed_at
+      && isWithinTaskPeriod(task)
+      && (task.task_type !== 'assigned' || isFarmManager()
+        || (task.assignments || []).some((assignment) => assignment.user_id === userId))
+    )),
+  ];
+  if (!tasks.length) {
+    const empty = document.createElement('p');
+    empty.className = 'task-empty';
+    empty.textContent = 'أضف مهمة يومية من مزرعتك أو مزرعتنا لتظهر هنا.';
+    container.append(empty);
+    return;
+  }
+  tasks.forEach((task) => {
+    const scope = task.farm_id ? 'shared' : 'personal';
+    const row = document.createElement('div');
+    row.className = `focus-day-task${state.selectedFocusTask?.id === task.id ? ' selected' : ''}`;
+    const title = document.createElement('span');
+    title.textContent = task.title;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-action focus-task-action';
+    button.textContent = state.selectedFocusTask?.id === task.id ? 'مختارة' : 'اختيار';
+    button.dataset.focusTask = task.id;
+    button.dataset.taskScope = scope;
+    button.setAttribute('aria-pressed', String(state.selectedFocusTask?.id === task.id));
+    row.append(title, button);
+    container.append(row);
+  });
+}
+
+function focusOnTask(taskId, scope) {
+  const tasks = scope === 'shared' ? state.sharedTasks : state.personalTasks;
+  const task = tasks.find((candidate) => candidate.id === taskId);
+  if (!task) return;
+  state.selectedFocusTask = { id: task.id, title: task.title, scope };
+  saveState();
+  render();
+  switchPage('focus');
+  showToast(`المهمة المختارة للتركيز: ${task.title}`);
 }
 
 function renderSharedMembers() {
@@ -975,27 +1044,66 @@ function renderDetailStats() {
 function renderTreeCatalog() {
   const catalog = $('#tree-catalog');
   catalog.replaceChildren();
-  const tree = selectedTree();
-  const progress = Number(state.privateFarm.tree_progress?.[tree.id] || 0);
-  const progressPercent = Math.min(100, (progress / (tree.minutes * 60)) * 100);
+  const destination = $('#tree-purchase-destination');
+  const sharedOption = destination.querySelector('option[value="shared"]');
+  sharedOption.disabled = !state.sharedFarm;
+  if (!state.sharedFarm && destination.value === 'shared') destination.value = 'personal';
   TREE_CATALOG.forEach((entry) => {
-    const count = Number(state.privateFarm.tree_inventory?.[entry.id] || 0);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `tree-choice${entry.id === state.selectedTree ? ' selected' : ''}`;
-    button.dataset.tree = entry.id;
-    button.setAttribute('aria-pressed', String(entry.id === state.selectedTree));
-    button.innerHTML = `<span class="tree-choice-icon">${treeIllustration(entry)}</span><strong>${entry.name}</strong><small>${formatArabicNumber(entry.minutes)} دقيقة تركيز</small><span class="tree-choice-count">${formatArabicNumber(count)} مزروعة</span>`;
-    button.addEventListener('click', () => {
-      state.selectedTree = entry.id;
-      saveState();
-      render();
-    });
-    catalog.append(button);
+    const count = Number((destination.value === 'shared'
+      ? state.sharedFarm?.tree_inventory
+      : state.privateFarm.tree_inventory)?.[entry.id] || 0);
+    const card = document.createElement('article');
+    card.className = 'tree-choice';
+    card.innerHTML = `<span class="tree-choice-icon">${treeIllustration(entry)}</span><strong>${entry.name}</strong><small>${formatArabicNumber(entry.minutes)} نقطة</small><span class="tree-choice-count">${formatArabicNumber(count)} مزروعة</span>`;
+    const buyButton = document.createElement('button');
+    buyButton.type = 'button';
+    buyButton.className = 'tree-buy-button';
+    buyButton.textContent = 'شراء';
+    buyButton.dataset.purchaseTree = entry.id;
+    buyButton.disabled = Number(state.privateFarm.points || 0) < entry.minutes;
+    card.append(buyButton);
+    catalog.append(card);
   });
-  setText('#selected-tree-progress', `تقدم ${tree.name}: ${formatArabicNumber(Math.floor(progressPercent))}٪`);
-  const progressBar = $('#selected-tree-progress-bar');
-  if (progressBar) progressBar.style.width = `${progressPercent}%`;
+}
+
+async function purchaseTree(treeId) {
+  const tree = TREE_CATALOG.find((entry) => entry.id === treeId);
+  if (!tree) return;
+  if (Number(state.privateFarm.points || 0) < tree.minutes) {
+    showToast('رصيدك من النقاط مش كفاية لشراء الشجرة دي.', true);
+    return;
+  }
+  const farmId = $('#tree-purchase-destination').value === 'shared'
+    ? state.sharedFarm?.id
+    : null;
+  if ($('#tree-purchase-destination').value === 'shared' && !farmId) {
+    showToast('انضم لمزرعة مشتركة أو أنشئ واحدة قبل الشراء لها.', true);
+    return;
+  }
+  if (syncEnabled) {
+    try {
+      await onlineReady;
+      if (!userId) throw new Error('تعذر الاتصال بخدمة المزامنة. سجل الدخول وحاول تاني.');
+      const { error } = await supabase.rpc('purchase_farm_tree', {
+        p_tree_type: tree.id,
+        p_farm_id: farmId,
+      });
+      if (error) throw error;
+      await loadFarmData();
+      showToast(`اشتريت شجرة ${tree.name} بنجاح 🌱`);
+    } catch (error) {
+      console.error('Could not purchase the tree.', error);
+      showToast(error.message || 'تعذر شراء الشجرة. حاول مرة أخرى.', true);
+    }
+    return;
+  }
+  state.privateFarm.points -= tree.minutes;
+  const farm = farmId ? state.sharedFarm : state.privateFarm;
+  farm.tree_inventory ||= {};
+  farm.tree_inventory[tree.id] = Number(farm.tree_inventory[tree.id] || 0) + 1;
+  saveState();
+  render();
+  showToast(`اشتريت شجرة ${tree.name} بنجاح 🌱`);
 }
 
 function renderTaskPlan() {
@@ -1009,7 +1117,9 @@ function renderTaskPlan() {
   const plan = `${formatArabicNumber(state.taskTargetMinutes)} د تركيز = ${sessionLabel} + ${breakLabel} · إجمالي ${formatFocusTime(totalElapsed)}`;
   const lastSessionSeconds = requestedSeconds - (sessions - 1) * focusSeconds;
   setText('#plan-summary', plan);
-  setText('#selected-task-title', 'اكتب وقت المهمة، وسيقسّمه جذور لجلسات واستراحات.');
+  setText('#selected-task-title', state.selectedFocusTask?.title
+    ? `المهمة المختارة: ${state.selectedFocusTask.title}`
+    : 'اكتب وقت المهمة، وسيقسّمه جذور لجلسات واستراحات.');
   setText('#settings-plan-preview', `مهمة ${formatArabicNumber(state.taskTargetMinutes)} دقيقة على ${sessionLabel} للتركيز، مع ${breakLabel}. الجلسة الأخيرة ${formatArabicNumber(Math.ceil(lastSessionSeconds / 60))} دقيقة.`);
 }
 
@@ -1059,6 +1169,9 @@ function beginPhase(phase, durationSeconds, autoStart = true) {
   state.timer.remainingSeconds = durationSeconds;
   state.timer.status = autoStart ? 'running' : 'idle';
   state.timer.deadline = autoStart ? Date.now() + durationSeconds * 1000 : null;
+  state.timer.phaseId = phase === 'focus' ? crypto.randomUUID() : null;
+  state.timer.lastAwardedMinute = 0;
+  if (autoStart && state.timer.phaseId) void startPointPhase(state.timer.phaseId);
   clearInterval(ticking);
   ticking = autoStart ? setInterval(tick, 250) : null;
   saveTimer();
@@ -1084,7 +1197,9 @@ function beginFocusBlock(autoStart = true) {
 
 function startTimer() {
   if (state.timer.status === 'running') {
+    processFocusMinuteAwards();
     state.timer.remainingSeconds = Math.max(0, Math.ceil((state.timer.deadline - Date.now()) / 1000));
+    if (state.timer.phaseId) void pausePointPhase(state.timer.phaseId);
     state.timer.status = 'paused';
     state.timer.deadline = null;
     clearInterval(ticking);
@@ -1092,6 +1207,9 @@ function startTimer() {
   } else if (state.timer.status === 'paused') {
     state.timer.status = 'running';
     state.timer.deadline = Date.now() + state.timer.remainingSeconds * 1000;
+    if (state.timer.phase === 'focus' && state.timer.phaseId) {
+      void startPointPhase(state.timer.phaseId);
+    }
     ticking = setInterval(tick, 250);
   } else {
     beginFocusBlock();
@@ -1102,6 +1220,8 @@ function startTimer() {
 }
 
 function resetTimer() {
+  processFocusMinuteAwards();
+  if (state.timer.phaseId) void pausePointPhase(state.timer.phaseId);
   clearInterval(ticking);
   ticking = null;
   state.timer = {
@@ -1111,6 +1231,8 @@ function resetTimer() {
     remainingSeconds: state.settings.focusMinutes * 60,
     deadline: null,
     plan: null,
+    phaseId: null,
+    lastAwardedMinute: 0,
   };
   saveTimer();
   renderTimer();
@@ -1118,6 +1240,7 @@ function resetTimer() {
 
 function tick() {
   const remaining = Math.max(0, Math.ceil((state.timer.deadline - Date.now()) / 1000));
+  processFocusMinuteAwards();
   dom.timerDisplay.textContent = formatTime(remaining);
   dom.timerOrbit.style.setProperty('--timer-progress', `${100 - (remaining / state.timer.durationSeconds) * 100}%`);
   if (remaining <= 0) {
@@ -1126,6 +1249,93 @@ function tick() {
     state.timer.remainingSeconds = 0;
     state.timer.deadline = null;
     void completePhase();
+  }
+}
+
+function processFocusMinuteAwards() {
+  if (state.timer.phase !== 'focus' || state.timer.status !== 'running' || !state.timer.phaseId) return;
+  const remaining = Math.max(0, Math.ceil((state.timer.deadline - Date.now()) / 1000));
+  const elapsedMinutes = Math.floor((state.timer.durationSeconds - remaining) / 60);
+  while (state.timer.lastAwardedMinute < elapsedMinutes) {
+    state.timer.lastAwardedMinute += 1;
+    awardFocusMinute(state.timer.phaseId, state.timer.lastAwardedMinute);
+  }
+  saveState();
+}
+
+let pointAwardsFlushPromise = null;
+async function awardFocusMinute(phaseId, minuteNumber) {
+  if (!syncEnabled) {
+    state.privateFarm.points = Number(state.privateFarm.points || 0) + 1;
+    render();
+    return;
+  }
+  if (!state.pendingPointAwards.some((award) => (
+    award.phaseId === phaseId && award.minuteNumber === minuteNumber
+  ))) {
+    state.pendingPointAwards.push({ phaseId, minuteNumber });
+    saveState();
+  }
+  void flushPendingPointAwards();
+}
+
+async function flushPendingPointAwards() {
+  if (pointAwardsFlushPromise) return pointAwardsFlushPromise;
+  if (!syncEnabled || !state.pendingPointAwards.length) return;
+  pointAwardsFlushPromise = flushPendingPointAwardsNow();
+  try {
+    await pointAwardsFlushPromise;
+  } finally {
+    pointAwardsFlushPromise = null;
+  }
+}
+
+async function flushPendingPointAwardsNow() {
+  try {
+    await onlineReady;
+    if (!userId) return;
+    while (state.pendingPointAwards.length) {
+      const award = state.pendingPointAwards[0];
+      const { data, error } = await supabase.rpc('award_focus_point', {
+        p_phase_id: award.phaseId,
+        p_minute_number: award.minuteNumber,
+      });
+      if (error) throw error;
+      state.privateFarm.points = Number(data.points);
+      state.pendingPointAwards.shift();
+      saveState();
+      render();
+    }
+  } catch (error) {
+    console.error('Could not sync focus points.', error);
+    showToast('تعذر مزامنة نقطة التركيز الآن؛ هنحاول تاني عند عودة الاتصال.', true);
+  }
+}
+
+async function startPointPhase(phaseId) {
+  if (!syncEnabled) return;
+  try {
+    await onlineReady;
+    if (!userId) return;
+    const { error } = await supabase.rpc('start_focus_point_phase', { p_phase_id: phaseId });
+    if (error) throw error;
+  } catch (error) {
+    console.error('Could not start synced focus point phase.', error);
+    showToast(error.message || 'تعذر بدء مزامنة نقاط التركيز.', true);
+  }
+}
+
+async function pausePointPhase(phaseId) {
+  if (!syncEnabled || !phaseId) return;
+  await flushPendingPointAwards();
+  try {
+    await onlineReady;
+    if (!userId) return;
+    const { error } = await supabase.rpc('pause_focus_point_phase', { p_phase_id: phaseId });
+    if (error) throw error;
+  } catch (error) {
+    console.error('Could not pause synced focus point phase.', error);
+    showToast(error.message || 'تعذر إيقاف مزامنة نقاط التركيز مؤقتًا.', true);
   }
 }
 
@@ -1142,6 +1352,8 @@ async function completePhase() {
     };
   }
   const durationSeconds = state.timer.durationSeconds;
+  processFocusMinuteAwards();
+  if (state.timer.phaseId) await pausePointPhase(state.timer.phaseId);
   state.timer.plan.focusedSeconds += durationSeconds;
   state.timer.plan.completedFocusSessions += 1;
   const recordResult = await recordCompletedFocus(durationSeconds);
@@ -1181,55 +1393,37 @@ function finishTaskPlan() {
   );
 }
 
-function addLocalFocus(farm, seconds, tree) {
+function addLocalFocus(farm, seconds) {
   farm.sessions += 1;
   farm.totalSeconds += seconds;
-  farm.tree_inventory ||= {};
-  farm.tree_progress ||= {};
-  const threshold = tree.minutes * 60;
-  let progress = Number(farm.tree_progress[tree.id] || 0) + seconds;
-  let grown = 0;
-  while (progress >= threshold) {
-    progress -= threshold;
-    farm.tree_inventory[tree.id] = Number(farm.tree_inventory[tree.id] || 0) + 1;
-    grown += 1;
-  }
-  farm.tree_progress[tree.id] = progress;
-  return grown;
+  return farm;
 }
 
 async function recordCompletedFocus(durationSeconds) {
-  const tree = selectedTree();
   if (!syncEnabled) {
-    const grown = addLocalFocus(state.privateFarm, durationSeconds, tree);
+    addLocalFocus(state.privateFarm, durationSeconds);
     if (state.shareFocus && state.sharedFarm) {
-      addLocalFocus(state.sharedFarm, durationSeconds, tree);
+      addLocalFocus(state.sharedFarm, durationSeconds);
     }
     saveState();
     render();
-    if (grown) showToast(`أحسنت! نمت ${formatArabicNumber(grown)} شجرة ${tree.name} 🌱`);
-    else showToast(`جلسة مكتملة! ${formatArabicNumber(Math.floor(state.privateFarm.tree_progress[tree.id] / 60))} دقيقة نحو شجرة ${tree.name}.`);
+    showToast(`جلسة مكتملة! رصيدك ${formatArabicNumber(state.privateFarm.points || 0)} نقطة.`);
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('جلسة تركيز مكتملة!', { body: 'أحسنت! وقتك بيقرّب شجرتك من النمو 🌱' });
+      new Notification('جلسة تركيز مكتملة!', { body: 'أحسنت! كسبت نقاطًا مقابل وقت تركيزك.' });
     }
     return 'saved';
   } else {
     let recorded = false;
-    const previousTreeCount = Number(state.privateFarm.tree_inventory?.[tree.id] || 0);
     try {
       const { error } = await supabase.rpc('record_focus', {
         p_seconds: durationSeconds,
         p_shared_farm_id: state.shareFocus ? state.sharedFarm?.id : null,
-        p_tree_type: tree.id,
+        p_tree_type: 'oak',
       });
       if (error) throw error;
       recorded = true;
       await loadFarmData();
-      const progress = Number(state.privateFarm.tree_progress?.[tree.id] || 0);
-      const grown = Number(state.privateFarm.tree_inventory?.[tree.id] || 0) - previousTreeCount;
-      showToast(grown
-        ? `أحسنت! نمت ${formatArabicNumber(grown)} شجرة ${tree.name} 🌱`
-        : `جلسة مكتملة! ${formatArabicNumber(Math.floor(progress / 60))} دقيقة نحو شجرة ${tree.name}.`);
+      showToast(`جلسة مكتملة! رصيدك ${formatArabicNumber(state.privateFarm.points || 0)} نقطة.`);
     } catch (error) {
       console.error('Could not sync the completed focus session.', error);
       showToast(
@@ -1242,7 +1436,7 @@ async function recordCompletedFocus(durationSeconds) {
     }
   }
   if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('جلسة تركيز مكتملة!', { body: 'أحسنت! وقتك بيقرّب شجرتك من النمو 🌱' });
+    new Notification('جلسة تركيز مكتملة!', { body: 'أحسنت! كسبت نقاطًا مقابل وقت تركيزك.' });
   }
   return 'saved';
 }
@@ -1336,7 +1530,7 @@ async function joinSharedFarm(code, displayName) {
 async function loadFarmData(preferredFarmId = null) {
   if (!syncEnabled || !userId) return;
   const { data: personal, error: personalError } = await supabase
-    .from('private_farms').select('sessions,total_seconds,tree_inventory,tree_progress').eq('user_id', userId).single();
+    .from('private_farms').select('sessions,total_seconds,points,tree_inventory,tree_progress').eq('user_id', userId).single();
   if (personalError) throw personalError;
   state.privateFarm = personal;
 
@@ -1373,6 +1567,7 @@ async function loadFarmData(preferredFarmId = null) {
   await loadGardenTasks();
   render();
   subscribeToSharedFarm();
+  void flushPendingPointAwards();
 }
 
 async function loadGardenTasks() {
@@ -1586,6 +1781,7 @@ function wireEvents() {
     renderTaskPlan();
     showToast('خطة المهمة جاهزة. ابدأ لما تكون مستعد.');
   });
+  $('#tree-purchase-destination').addEventListener('change', renderTreeCatalog);
   $('#google-connect').addEventListener('click', linkGoogleAccount);
   $('#google-login').addEventListener('click', signInWithGoogle);
   $$('[data-add-task]').forEach((button) => {
@@ -1598,6 +1794,10 @@ function wireEvents() {
     if (!button) return;
     if (button.dataset.completeTask) {
       void completeGardenTask(button.dataset.completeTask, button.closest('.garden-task').dataset.taskScope);
+    } else if (button.dataset.focusTask) {
+      focusOnTask(button.dataset.focusTask, button.dataset.taskScope);
+    } else if (button.dataset.purchaseTree) {
+      void purchaseTree(button.dataset.purchaseTree);
     } else if (button.dataset.deleteTask) {
       void deleteGardenTask(button.dataset.deleteTask, button.closest('.garden-task').dataset.taskScope);
     } else if (button.dataset.editTask) {

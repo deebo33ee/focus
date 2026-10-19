@@ -114,6 +114,17 @@ create table if not exists public.focus_point_awards (
   primary key (user_id, phase_id, minute_number)
 );
 
+create table if not exists public.focus_point_phases (
+  phase_id uuid primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  active_since timestamptz,
+  accumulated_seconds integer not null default 0 check (accumulated_seconds >= 0)
+);
+
+create unique index if not exists focus_point_phases_one_active_per_user
+  on public.focus_point_phases (user_id)
+  where active_since is not null;
+
 create or replace function public.is_shared_farm_manager(p_farm_id uuid)
 returns boolean
 language sql
@@ -186,6 +197,177 @@ begin
   insert into public.private_farms (user_id)
   values (auth.uid())
   on conflict (user_id) do nothing;
+end;
+$$;
+
+create or replace function public.award_focus_point(p_phase_id uuid, p_minute_number integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_awarded boolean := false;
+  v_points bigint;
+  v_phase public.focus_point_phases;
+  v_available_minutes integer;
+  v_next_minute integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+  if p_phase_id is null or p_minute_number is null or p_minute_number < 1 then
+    raise exception 'Invalid focus minute';
+  end if;
+
+  select * into v_phase
+  from public.focus_point_phases
+  where phase_id = p_phase_id and user_id = auth.uid()
+  for update;
+  if not found or v_phase.active_since is null then
+    raise exception 'Focus phase is not active';
+  end if;
+  v_available_minutes := floor(
+    (v_phase.accumulated_seconds + extract(epoch from (now() - v_phase.active_since))) / 60
+  );
+  select coalesce(max(minute_number), 0) + 1 into v_next_minute
+  from public.focus_point_awards
+  where user_id = auth.uid() and phase_id = p_phase_id;
+  if p_minute_number <> v_next_minute or p_minute_number > v_available_minutes then
+    raise exception 'Focus minute has not elapsed';
+  end if;
+  insert into public.focus_point_awards (user_id, phase_id, minute_number)
+  values (auth.uid(), p_phase_id, p_minute_number);
+  v_awarded := true;
+
+  insert into public.private_farms (user_id, points)
+  values (auth.uid(), case when v_awarded then 1 else 0 end)
+  on conflict (user_id) do update
+  set points = public.private_farms.points + case when v_awarded then 1 else 0 end,
+      updated_at = case when v_awarded then now() else public.private_farms.updated_at end
+  returning points into v_points;
+
+  return jsonb_build_object('awarded', v_awarded, 'points', v_points);
+end;
+$$;
+
+create or replace function public.start_focus_point_phase(p_phase_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or p_phase_id is null then
+    raise exception 'Authentication and focus phase are required';
+  end if;
+  update public.focus_point_phases
+  set active_since = now()
+  where phase_id = p_phase_id and user_id = auth.uid() and active_since is null;
+  if found then return; end if;
+  if exists (
+    select 1 from public.focus_point_phases
+    where phase_id = p_phase_id and user_id = auth.uid() and active_since is not null
+  ) then
+    return;
+  end if;
+  insert into public.focus_point_phases (phase_id, user_id, active_since)
+  values (p_phase_id, auth.uid(), now());
+exception
+  when unique_violation then
+    raise exception 'Another focus phase is already active';
+end;
+$$;
+
+create or replace function public.pause_focus_point_phase(p_phase_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or p_phase_id is null then
+    raise exception 'Authentication and focus phase are required';
+  end if;
+  update public.focus_point_phases
+  set accumulated_seconds = accumulated_seconds
+        + greatest(0, floor(extract(epoch from (now() - active_since)))::integer),
+      active_since = null
+  where phase_id = p_phase_id and user_id = auth.uid() and active_since is not null;
+end;
+$$;
+
+create or replace function public.purchase_farm_tree(p_tree_type text, p_farm_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_price integer;
+  v_points bigint;
+  v_inventory jsonb;
+  v_count integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+  v_price := case p_tree_type
+    when 'olive' then 30
+    when 'apple' then 45
+    when 'oak' then 60
+    when 'pine' then 90
+    when 'palm' then 120
+    when 'bamboo' then 150
+    when 'cherry' then 180
+    when 'maple' then 240
+    when 'cypress' then 300
+    when 'baobab' then 360
+    when 'mangrove' then 480
+    when 'redwood' then 600
+    else null
+  end;
+  if v_price is null then
+    raise exception 'Unknown tree type';
+  end if;
+  if p_farm_id is not null and not public.is_shared_farm_member(p_farm_id) then
+    raise exception 'You are not a member of this shared farm';
+  end if;
+
+  update public.private_farms
+  set points = points - v_price, updated_at = now()
+  where user_id = auth.uid() and points >= v_price
+  returning points into v_points;
+  if not found then
+    raise exception 'Not enough points to buy this tree';
+  end if;
+
+  if p_farm_id is null then
+    update public.private_farms
+    set tree_inventory = jsonb_set(
+      tree_inventory,
+      array[p_tree_type],
+      to_jsonb(coalesce((tree_inventory ->> p_tree_type)::integer, 0) + 1),
+      true
+    )
+    where user_id = auth.uid()
+    returning tree_inventory into v_inventory;
+  else
+    update public.shared_farms
+    set tree_inventory = jsonb_set(
+      tree_inventory,
+      array[p_tree_type],
+      to_jsonb(coalesce((tree_inventory ->> p_tree_type)::integer, 0) + 1),
+      true
+    )
+    where id = p_farm_id
+    returning tree_inventory into v_inventory;
+  end if;
+  if v_inventory is null then
+    raise exception 'The selected farm could not be found';
+  end if;
+  v_count := coalesce((v_inventory ->> p_tree_type)::integer, 0);
+  return jsonb_build_object('points', v_points, 'tree_count', v_count);
 end;
 $$;
 
@@ -579,11 +761,6 @@ as $$
 declare
   v_private public.private_farms;
   v_shared public.shared_farms;
-  v_tree_minutes integer;
-  v_private_progress integer;
-  v_shared_progress integer;
-  v_private_inventory jsonb;
-  v_shared_inventory jsonb;
 begin
   if auth.uid() is null then
     raise exception 'Authentication required';
@@ -591,48 +768,12 @@ begin
   if p_seconds is null or p_seconds < 1 or p_seconds > 10800 then
     raise exception 'Focus duration must be between 1 and 10800 seconds';
   end if;
-  v_tree_minutes := case p_tree_type
-    when 'olive' then 30
-    when 'apple' then 45
-    when 'oak' then 60
-    when 'pine' then 90
-    when 'palm' then 120
-    when 'bamboo' then 150
-    when 'cherry' then 180
-    when 'maple' then 240
-    when 'cypress' then 300
-    when 'baobab' then 360
-    when 'mangrove' then 480
-    when 'redwood' then 600
-    else null
-  end;
-  if v_tree_minutes is null then
-    raise exception 'Unknown tree type';
-  end if;
-
   insert into public.private_farms (user_id, sessions, total_seconds)
   values (auth.uid(), 1, p_seconds)
   on conflict (user_id) do update
   set sessions = public.private_farms.sessions + 1,
       total_seconds = public.private_farms.total_seconds + excluded.total_seconds,
       updated_at = now()
-  returning * into v_private;
-
-  v_private_progress := coalesce((v_private.tree_progress ->> p_tree_type)::integer, 0) + p_seconds;
-  v_private_inventory := v_private.tree_inventory;
-  while v_private_progress >= v_tree_minutes * 60 loop
-    v_private_progress := v_private_progress - v_tree_minutes * 60;
-    v_private_inventory := jsonb_set(
-      v_private_inventory,
-      array[p_tree_type],
-      to_jsonb(coalesce((v_private_inventory ->> p_tree_type)::integer, 0) + 1),
-      true
-    );
-  end loop;
-  update public.private_farms
-  set tree_inventory = v_private_inventory,
-      tree_progress = jsonb_set(tree_progress, array[p_tree_type], to_jsonb(v_private_progress), true)
-  where user_id = auth.uid()
   returning * into v_private;
 
   if p_shared_farm_id is not null then
@@ -643,22 +784,9 @@ begin
     from public.shared_farms
     where id = p_shared_farm_id
     for update;
-    v_shared_progress := coalesce((v_shared.tree_progress ->> p_tree_type)::integer, 0) + p_seconds;
-    v_shared_inventory := v_shared.tree_inventory;
-    while v_shared_progress >= v_tree_minutes * 60 loop
-      v_shared_progress := v_shared_progress - v_tree_minutes * 60;
-      v_shared_inventory := jsonb_set(
-        v_shared_inventory,
-        array[p_tree_type],
-        to_jsonb(coalesce((v_shared_inventory ->> p_tree_type)::integer, 0) + 1),
-        true
-      );
-    end loop;
     update public.shared_farms
     set sessions = sessions + 1,
-        total_seconds = total_seconds + p_seconds,
-        tree_inventory = v_shared_inventory,
-        tree_progress = jsonb_set(tree_progress, array[p_tree_type], to_jsonb(v_shared_progress), true)
+        total_seconds = total_seconds + p_seconds
     where id = p_shared_farm_id
     returning * into v_shared;
   end if;
@@ -712,6 +840,7 @@ create policy "Users can read assignments for visible tasks"
 
 revoke all on public.private_farms, public.shared_farms, public.farm_members,
   public.farm_tasks, public.farm_task_assignments from anon, authenticated;
+revoke all on public.focus_point_awards, public.focus_point_phases from public, anon, authenticated;
 grant select on public.private_farms, public.shared_farms, public.farm_members,
   public.farm_tasks, public.farm_task_assignments to authenticated;
 revoke all on function public.is_shared_farm_member(uuid) from public, anon;
@@ -727,6 +856,10 @@ revoke all on function public.complete_farm_task(uuid) from public, anon;
 revoke all on function public.update_farm_task(uuid, text, text) from public, anon;
 revoke all on function public.delete_farm_task(uuid) from public, anon;
 revoke all on function public.record_focus(integer, uuid, text) from public, anon;
+revoke all on function public.award_focus_point(uuid, integer) from public, anon;
+revoke all on function public.start_focus_point_phase(uuid) from public, anon;
+revoke all on function public.pause_focus_point_phase(uuid) from public, anon;
+revoke all on function public.purchase_farm_tree(text, uuid) from public, anon;
 grant execute on function public.is_shared_farm_member(uuid) to authenticated;
 grant execute on function public.is_shared_farm_manager(uuid) to authenticated;
 grant execute on function public.can_read_farm_task(uuid) to authenticated;
@@ -740,6 +873,10 @@ grant execute on function public.complete_farm_task(uuid) to authenticated;
 grant execute on function public.update_farm_task(uuid, text, text) to authenticated;
 grant execute on function public.delete_farm_task(uuid) to authenticated;
 grant execute on function public.record_focus(integer, uuid, text) to authenticated;
+grant execute on function public.award_focus_point(uuid, integer) to authenticated;
+grant execute on function public.start_focus_point_phase(uuid) to authenticated;
+grant execute on function public.pause_focus_point_phase(uuid) to authenticated;
+grant execute on function public.purchase_farm_tree(text, uuid) to authenticated;
 
 alter table public.shared_farms replica identity full;
 alter table public.farm_members replica identity full;

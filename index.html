@@ -57,6 +57,10 @@
               </div>
               <button class="timer-action" id="timer-toggle"><span class="action-icon">▶</span><span>ابدأ التركيز</span></button>
               <p class="timer-hint" id="timer-hint">تقدر توقف وتكمل في أي وقت</p>
+              <div class="focus-task-picker">
+                <div class="focus-task-heading"><strong>اختار مهمة تركز عليها</strong><span id="focus-points-balance">٠ نقطة</span></div>
+                <div id="focus-day-tasks" class="focus-day-tasks"></div>
+              </div>
             </section>
 
             <section class="garden-preview-card">
@@ -85,7 +89,7 @@
             <div id="garden-3d" class="garden-3d" hidden aria-hidden="true"><span id="garden-3d-count" class="garden-3d-count" aria-live="polite"></span></div>
           </div>
           <div class="detail-stats" id="personal-detail-stats"></div>
-          <div class="info-strip"><span class="info-icon">✳</span><span>وقت تركيزك بيتراكم للشجرة اللي اخترتها، وكل نوع له وقت نمو مختلف.</span><button data-page="settings">اختار شجرة <span>←</span></button></div>
+          <div class="info-strip"><span class="info-icon">✳</span><span>اكسب نقطة عن كل دقيقة تركيز، واستخدم نقاطك لشراء الأشجار.</span><button data-page="settings">متجر الأشجار <span>←</span></button></div>
           <section class="garden-tasks-card">
             <div class="tasks-heading"><div><p class="eyebrow">خطوتك الجاية</p><h2>مهام مزرعتي</h2></div><button class="integration-button" data-add-task="personal">＋ أضف مهمة</button></div>
             <h3>مهام اليوم</h3><div class="garden-task-list" id="personal-day-tasks"></div>
@@ -124,8 +128,9 @@
             <div class="settings-note"><span>✦</span><p id="settings-plan-preview">مهمة ٦٠ دقيقة = ٣ جلسات وترتيب استراحات تلقائي.</p></div>
           </section>
           <section class="settings-card tree-picker-card">
-            <div class="settings-heading"><span class="settings-icon tree-settings-icon">♧</span><div><h2>اختار شجرتك</h2><p>كل نوع له وقت نمو خاص. تركيزك يتراكم للشجرة المختارة.</p></div></div>
-            <div class="selected-tree-progress"><span id="selected-tree-progress">تقدم شجرتك</span><span class="tree-progress-track"><span id="selected-tree-progress-bar"></span></span></div>
+            <div class="settings-heading"><span class="settings-icon tree-settings-icon">♧</span><div><h2>متجر الأشجار</h2><p>رصيدك الشخصي يشتري أشجارًا لمزرعتك أو لمزرعتنا.</p></div><strong class="shop-points" id="shop-points-balance">٠ نقطة</strong></div>
+            <label class="shop-destination-label" for="tree-purchase-destination">هتزرع الشجرة في</label>
+            <select id="tree-purchase-destination" class="shop-destination"><option value="personal">مزرعتي</option><option value="shared">مزرعتنا</option></select>
             <div class="tree-catalog" id="tree-catalog"></div>
           </section>
           <section class="settings-card integrations-card">
