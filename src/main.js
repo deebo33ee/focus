@@ -100,6 +100,8 @@ let threeControls = null;
 let threeAnimationId = null;
 let threeRoot = null;
 let threeGround = null;
+let threeGrass = null;
+let threeGrassMaterial = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -269,7 +271,8 @@ function init3DGarden(container) {
   const width = container.clientWidth || container.offsetWidth || 800;
   const height = container.clientHeight || container.offsetHeight || 400;
   threeScene = new THREE.Scene();
-  threeScene.fog = new THREE.FogExp2(0xe0f3df, 0.00035);
+  threeScene.background = new THREE.Color(0x0a1f4a);
+  threeScene.fog = new THREE.Fog(0x0a1f4a, 26, 80);
   threeCamera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
   threeCamera.position.set(0, 18, 28);
   threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -277,19 +280,59 @@ function init3DGarden(container) {
   threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   container.appendChild(threeRenderer.domElement);
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.95);
+  const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x2d5a2d, 0.95);
   threeScene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xfff3d9, 0.9);
+  const dir = new THREE.DirectionalLight(0xfff4d6, 0.9);
   dir.position.set(10, 20, 10);
+  dir.castShadow = true;
   threeScene.add(dir);
 
   threeGround = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshLambertMaterial({ color: 0x9fd07a }),
+    new THREE.CylinderGeometry(11, 10.1, 1.2, 56),
+    [
+      new THREE.MeshStandardMaterial({ color: 0x5b3a21, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x1f5a45, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x2e241b, flatShading: true }),
+    ],
   );
-  threeGround.rotation.x = -Math.PI / 2;
-  threeGround.position.y = -0.03;
+  threeGround.position.y = -0.6;
+  threeGround.receiveShadow = true;
   threeScene.add(threeGround);
+
+  const grassGeometry = new THREE.ConeGeometry(0.05, 0.6, 3);
+  grassGeometry.translate(0, 0.3, 0);
+  threeGrassMaterial = new THREE.MeshStandardMaterial({ color: 0x6cc27f, roughness: 1 });
+  threeGrassMaterial.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float wind = sin(uTime * 2.0 + instanceMatrix[3].x * 0.7 + instanceMatrix[3].z * 0.5);
+        transformed.x += wind * 0.12 * position.y / 0.6;
+        transformed.z += wind * 0.06 * position.y / 0.6;`,
+      );
+    threeGrassMaterial.userData.shader = shader;
+  };
+  threeGrass = new THREE.InstancedMesh(grassGeometry, threeGrassMaterial, 5500);
+  const bladeMatrix = new THREE.Matrix4();
+  const bladePosition = new THREE.Vector3();
+  const bladeRotation = new THREE.Quaternion();
+  const bladeEuler = new THREE.Euler();
+  const bladeScale = new THREE.Vector3();
+  for (let index = 0; index < threeGrass.count; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.sqrt(Math.random()) * 10.5;
+    bladePosition.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    bladeEuler.set(0, Math.random() * Math.PI * 2, 0);
+    bladeRotation.setFromEuler(bladeEuler);
+    bladeScale.set(1, 0.6 + Math.random() * 1.1, 1);
+    bladeMatrix.compose(bladePosition, bladeRotation, bladeScale);
+    threeGrass.setMatrixAt(index, bladeMatrix);
+  }
+  threeGrass.frustumCulled = false;
+  threeScene.add(threeGrass);
 
   // root group for trees
   threeRoot = new THREE.Group();
@@ -445,7 +488,10 @@ function update3DGarden() {
   const rows = Math.max(1, Math.ceil(total / columns));
   const width = columns * spacing;
   const depth = rows * spacing;
-  if (threeGround) threeGround.scale.set(width + 12, depth + 12, 1);
+  const radius = Math.max(11, Math.hypot(width / 2, depth / 2) + 4);
+  const scale = radius / 11;
+  if (threeGround) threeGround.scale.set(scale, 1, scale);
+  if (threeGrass) threeGrass.scale.set(scale, 1, scale);
   setText('#garden-3d-count', `المزرعة فيها ${formatArabicNumber(total)} شجرة`);
 
   if (!total) {
@@ -517,6 +563,9 @@ function update3DGarden() {
 function animate3D() {
   threeAnimationId = requestAnimationFrame(animate3D);
   if (threeControls) threeControls.update();
+  if (threeGrassMaterial?.userData.shader) {
+    threeGrassMaterial.userData.shader.uniforms.uTime.value = performance.now() / 1000;
+  }
   if (threeRenderer && threeScene && threeCamera) threeRenderer.render(threeScene, threeCamera);
 }
 
@@ -538,7 +587,16 @@ function dispose3D() {
   if (threeRenderer && threeRenderer.domElement && threeRenderer.domElement.parentElement) {
     threeRenderer.domElement.parentElement.removeChild(threeRenderer.domElement);
   }
+  if (threeGround) {
+    threeGround.geometry.dispose();
+    threeGround.material.forEach((material) => material.dispose());
+  }
+  if (threeGrass) {
+    threeGrass.geometry.dispose();
+    threeGrass.material.dispose();
+  }
   threeScene = threeCamera = threeRenderer = threeControls = threeRoot = null;
+  threeGround = threeGrass = threeGrassMaterial = null;
   threeInitialized = false;
 }
 
