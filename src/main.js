@@ -1254,7 +1254,9 @@ function tick() {
 
 function processFocusMinuteAwards() {
   if (state.timer.phase !== 'focus' || state.timer.status !== 'running' || !state.timer.phaseId) return;
-  const remaining = Math.max(0, Math.ceil((state.timer.deadline - Date.now()) / 1000));
+  const remaining = Math.max(0, state.timer.deadline
+    ? Math.ceil((state.timer.deadline - Date.now()) / 1000)
+    : state.timer.remainingSeconds);
   const elapsedMinutes = Math.floor((state.timer.durationSeconds - remaining) / 60);
   while (state.timer.lastAwardedMinute < elapsedMinutes) {
     state.timer.lastAwardedMinute += 1;
@@ -1782,6 +1784,7 @@ function wireEvents() {
     showToast('خطة المهمة جاهزة. ابدأ لما تكون مستعد.');
   });
   $('#tree-purchase-destination').addEventListener('change', renderTreeCatalog);
+  window.addEventListener('online', () => { void flushPendingPointAwards(); });
   $('#google-connect').addEventListener('click', linkGoogleAccount);
   $('#google-login').addEventListener('click', signInWithGoogle);
   $$('[data-add-task]').forEach((button) => {
