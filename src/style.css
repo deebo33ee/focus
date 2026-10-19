@@ -3,7 +3,7 @@
 :root {
   font-family: 'Cairo', 'DM Sans', sans-serif;
   color: #173d2c;
-  background: linear-gradient(145deg, #e6f5df 0%, #d5efda 54%, #c9e8cf 100%);
+  background: linear-gradient(145deg, #dcefdc 0%, #cbe5d0 52%, #b9d9c3 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --ink: #173d2c;
@@ -19,7 +19,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: linear-gradient(145deg, #e6f5df 0%, #d5efda 54%, #c9e8cf 100%); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: linear-gradient(145deg, #dcefdc 0%, #cbe5d0 52%, #b9d9c3 100%); }
 button, input { font: inherit; }
 button { color: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #a9c48d; outline-offset: 3px; }
@@ -388,7 +388,7 @@ h1, h2, p { margin-top: 0; }
 
 .sidebar { background: #fffefa; border-color: #dcebdd; }
 .nav-link.active { color: #0f693f; background: #e2f6e9; }
-.main-content { background: rgba(255, 255, 255, .18); }
+.main-content { background: rgba(222, 241, 224, .08); }
 .topbar { border-color: #dcebdd; }
 .welcome-row h1, .page-title-row h1 { color: #173d2c; }
 .timer-card, .garden-preview-card, .shared-garden-card, .garden-large-card, .settings-card {
@@ -429,7 +429,7 @@ h1, h2, p { margin-top: 0; }
   margin-top: auto;
   padding: 18px 16px 22px;
   border-top: 1px solid var(--line);
-  background: rgba(255, 254, 250, .52);
+  background: rgba(203, 229, 208, .58);
   backdrop-filter: blur(6px);
 }
 .site-footer p {
