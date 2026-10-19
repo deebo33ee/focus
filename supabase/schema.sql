@@ -4,6 +4,7 @@ create table if not exists public.private_farms (
   user_id uuid primary key references auth.users (id) on delete cascade,
   sessions integer not null default 0 check (sessions >= 0),
   total_seconds bigint not null default 0 check (total_seconds >= 0),
+  points bigint not null default 0 check (points >= 0),
   tree_inventory jsonb not null default '{}'::jsonb,
   tree_progress jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
@@ -48,6 +49,9 @@ begin
   end if;
 end;
 $$;
+
+alter table public.private_farms
+  add column if not exists points bigint not null default 0 check (points >= 0);
 
 create table if not exists public.farm_members (
   farm_id uuid not null references public.shared_farms (id) on delete cascade,
@@ -100,6 +104,14 @@ create table if not exists public.farm_task_assignments (
   user_id uuid not null references auth.users (id) on delete cascade,
   completed_at timestamptz,
   primary key (task_id, user_id)
+);
+
+create table if not exists public.focus_point_awards (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  phase_id uuid not null,
+  minute_number integer not null check (minute_number > 0),
+  created_at timestamptz not null default now(),
+  primary key (user_id, phase_id, minute_number)
 );
 
 create or replace function public.is_shared_farm_manager(p_farm_id uuid)
