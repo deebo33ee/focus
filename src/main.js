@@ -83,6 +83,7 @@ let toastTimer = null;
 let realtimeChannel = null;
 let realtimeFarmId = null;
 let onlineReady = Promise.resolve();
+let confirmationResolver = null;
 
 // Three.js 3D garden state
 let threeInitialized = false;
@@ -107,6 +108,7 @@ const dom = {
   nameDialog: $('#name-dialog'),
   joinDialog: $('#join-dialog'),
   taskDialog: $('#task-dialog'),
+  confirmationDialog: $('#confirmation-dialog'),
 };
 
 function saveState() {
@@ -124,6 +126,16 @@ function showToast(message, isError = false) {
   dom.toast.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => dom.toast.classList.remove('visible'), 3300);
+}
+
+function confirmAction(message, confirmLabel, title = 'تأكيد الإجراء') {
+  setText('#confirmation-title', title);
+  setText('#confirmation-message', message);
+  setText('#confirmation-dialog button[value="confirm"]', confirmLabel);
+  dom.confirmationDialog.showModal();
+  return new Promise((resolve) => {
+    confirmationResolver = resolve;
+  });
 }
 
 function formatArabicNumber(value) {
@@ -893,7 +905,7 @@ async function completeGardenTask(taskId, scope) {
 }
 
 async function deleteGardenTask(taskId, scope) {
-  if (!window.confirm('متأكد إنك عايز تحذف المهمة؟')) return;
+  if (!await confirmAction('المهمة هتتحذف نهائيًا ومش هتقدر ترجعها.', 'احذف المهمة', 'حذف المهمة')) return;
   try {
     if (syncEnabled) {
       const { error } = await supabase.rpc('delete_farm_task', { p_task_id: taskId });
@@ -928,7 +940,9 @@ async function setFarmMemberRole(memberId, role) {
 }
 
 async function removeFarmMember(memberId) {
-  if (!window.confirm('إزالة العضو من المزرعة؟ لن يقدر يشوفها أو يضيف تركيزًا لها.')) return;
+  const member = state.members.find((entry) => entry.user_id === memberId);
+  const name = member?.display_name || 'العضو';
+  if (!await confirmAction(`إزالة ${name} من المزرعة؟ مش هيقدر يشوفها أو يضيف تركيزًا لها.`, 'إزالة العضو', 'إزالة عضو')) return;
   try {
     const { error } = await supabase.rpc('remove_farm_member', {
       p_farm_id: state.sharedFarm.id,
@@ -1553,6 +1567,10 @@ function saveTaskTarget() {
 }
 
 function wireEvents() {
+  dom.confirmationDialog.addEventListener('close', () => {
+    confirmationResolver?.(dom.confirmationDialog.returnValue === 'confirm');
+    confirmationResolver = null;
+  });
   $$('[data-page]').forEach((button) => button.addEventListener('click', () => switchPage(button.dataset.page)));
   $$('[data-open]').forEach((button) => button.addEventListener('click', () => switchPage(button.dataset.open)));
   dom.timerToggle.addEventListener('click', startTimer);
