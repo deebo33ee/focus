@@ -3,13 +3,13 @@
 :root {
   font-family: 'Cairo', 'DM Sans', sans-serif;
   color: #173d2c;
-  background: linear-gradient(145deg, #dcefdc 0%, #cbe5d0 52%, #b9d9c3 100%);
+  background: linear-gradient(145deg, #c5dfc9 0%, #b4d4bb 52%, #9fc5aa 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --ink: #173d2c;
-  --muted: #405d49;
-  --green: #14683f;
-  --green-dark: #0f5935;
+  --muted: #304b37;
+  --green: #125f39;
+  --green-dark: #0b4e2f;
   --green-soft: #e2f6e9;
   --paper: #ffffff;
   --line: #dcebdd;
@@ -19,7 +19,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: linear-gradient(145deg, #dcefdc 0%, #cbe5d0 52%, #b9d9c3 100%); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: linear-gradient(145deg, #c5dfc9 0%, #b4d4bb 52%, #9fc5aa 100%); }
 button, input { font: inherit; }
 button { color: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #a9c48d; outline-offset: 3px; }
@@ -388,7 +388,7 @@ h1, h2, p { margin-top: 0; }
 
 .sidebar { background: #fffefa; border-color: #dcebdd; }
 .nav-link.active { color: #0f693f; background: #e2f6e9; }
-.main-content { background: rgba(222, 241, 224, .08); }
+.main-content { background: rgba(159, 197, 170, .12); }
 .topbar { border-color: #dcebdd; }
 .welcome-row h1, .page-title-row h1 { color: #173d2c; }
 .timer-card, .garden-preview-card, .shared-garden-card, .garden-large-card, .settings-card {
@@ -550,7 +550,7 @@ h1, h2, p { margin-top: 0; }
 .app-dialog select[multiple] { min-height: 86px; }
 [hidden] { display: none !important; }
 
-:root { --muted-soft: #506a56; }
+:root { --muted-soft: #344b38; }
 button, input, select { font-family: 'Cairo', 'DM Sans', sans-serif; }
 .brand-copy small,
 .nav-caption,
@@ -601,3 +601,5 @@ button, input, select { font-family: 'Cairo', 'DM Sans', sans-serif; }
 }
 .mobile-nav-item { color: var(--muted-soft); }
 .site-footer a { color: var(--green-dark); }
+.date-dot { color: #52715a; }
+.tree-choice-count { color: #304a35; }
