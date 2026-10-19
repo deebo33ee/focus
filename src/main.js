@@ -1103,7 +1103,12 @@ async function toggleGardenTaskCompletion(taskId, scope) {
     showToast(stillCompleted ? 'اتعلمت المهمة مكتملة ✓' : 'تم إلغاء إكمال المهمة.');
   } catch (error) {
     console.error('Could not toggle the garden task completion.', error);
-    showToast(error.message || 'تعذر تحديث حالة المهمة. حاول تاني.', true);
+    showToast(
+      error.code === 'PGRST202'
+        ? 'قاعدة البيانات محتاجة تحديث: شغّل آخر نسخة من supabase/schema.sql من SQL Editor في Supabase، ثم حدّث الصفحة.'
+        : error.message || 'تعذر تحديث حالة المهمة. حاول تاني.',
+      true,
+    );
   }
 }
 
