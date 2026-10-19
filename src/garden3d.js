@@ -87,6 +87,13 @@ function getTreeGeometry(shape) {
 // الاستخدام: const garden = createGarden3D(document.getElementById('garden-3d'));
 // garden.dispose() لما تشيل العنصر.
 export function createGarden3D(container, options = {}) {
+  if (!container || !(container instanceof Element)) {
+    return {
+      setTreeInventory() {},
+      dispose() {},
+    };
+  }
+
   const R = 11;
   const grassCount = options.grassCount ?? 5500;
 
