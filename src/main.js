@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { PublicClientApplication } from '@azure/msal-browser';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import './style.css';
@@ -7,7 +6,6 @@ import './style.css';
 const STORAGE_KEY = 'jozoor-focus-garden-v1';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const MS_TODO_CLIENT_ID = import.meta.env.VITE_MS_TODO_CLIENT_ID;
 const syncEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 const supabase = syncEnabled ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const TREE_CATALOG = [
@@ -24,29 +22,17 @@ const TREE_CATALOG = [
   { id: 'mangrove', name: 'مانجروف', icon: '🌿', minutes: 480 },
   { id: 'redwood', name: 'سيكويا', icon: '🌲', minutes: 600 },
 ];
-const msalClient = MS_TODO_CLIENT_ID
-  ? new PublicClientApplication({
-    auth: {
-      clientId: MS_TODO_CLIENT_ID,
-      authority: 'https://login.microsoftonline.com/common',
-      redirectUri: window.location.origin,
-    },
-    cache: { cacheLocation: 'localStorage' },
-  })
-  : null;
-const MS_TODO_PENDING_KEY = `${STORAGE_KEY}-ms-todo-pending`;
-let msalInitialization;
-
 const freshState = () => ({
   displayName: 'صاحب المزرعة',
   privateFarm: { sessions: 0, totalSeconds: 0, tree_inventory: {}, tree_progress: {} },
   sharedFarm: null,
   members: [],
+  personalTasks: [],
+  sharedTasks: [],
   shareFocus: false,
   settings: { focusMinutes: 25, breakMinutes: 5 },
   taskTargetMinutes: 60,
   selectedTree: 'oak',
-  selectedTask: null,
   timer: {
     status: 'idle', phase: 'focus', durationSeconds: 1500, remainingSeconds: 1500,
     deadline: null, plan: null,
@@ -120,6 +106,7 @@ const dom = {
   toast: $('#toast'),
   nameDialog: $('#name-dialog'),
   joinDialog: $('#join-dialog'),
+  taskDialog: $('#task-dialog'),
 };
 
 function saveState() {
@@ -583,11 +570,377 @@ function render() {
   if (document.activeElement !== $('#setting-break-minutes')) $('#setting-break-minutes').value = state.settings.breakMinutes;
   if (document.activeElement !== $('#task-minutes')) $('#task-minutes').value = state.taskTargetMinutes;
   renderTreeCatalog();
+  renderGardenTasks();
+  renderSharedMembers();
   renderTaskPlan();
   renderDetailStats();
   renderTimer();
   if (threeInitialized) update3DGarden();
   saveState();
+}
+
+function isFarmManager() {
+  return Boolean(state.sharedFarm && (
+    state.sharedFarm.created_by === userId
+    || state.members.some((member) => member.user_id === userId && member.role === 'admin')
+  ));
+}
+
+function memberName(memberId) {
+  if (memberId === userId) return state.displayName;
+  return state.members.find((member) => member.user_id === memberId)?.display_name || 'عضو سابق';
+}
+
+function currentWeekStart() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+}
+
+function isWithinTaskPeriod(task) {
+  const created = new Date(task.created_at);
+  const now = new Date();
+  if (Number.isNaN(created.getTime())) return false;
+  if (task.period === 'day') {
+    return created.getFullYear() === now.getFullYear()
+      && created.getMonth() === now.getMonth()
+      && created.getDate() === now.getDate();
+  }
+  const startOfWeek = currentWeekStart();
+  const createdDay = new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  return createdDay >= startOfWeek && createdDay <= now;
+}
+
+function renderTaskGroup(targetId, tasks, scope, period) {
+  const container = $(targetId);
+  container.replaceChildren();
+  const visibleTasks = tasks
+    .filter((task) => {
+      if (task.period !== period || !isWithinTaskPeriod(task)) return false;
+      if (scope === 'personal' || task.task_type !== 'assigned' || isFarmManager()) return true;
+      return (task.assignments || []).some((assignment) => assignment.user_id === userId);
+    })
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+  if (!visibleTasks.length) {
+    const empty = document.createElement('p');
+    empty.className = 'task-empty';
+    empty.textContent = 'مفيش مهام هنا لسه.';
+    container.append(empty);
+    return;
+  }
+
+  visibleTasks.forEach((task) => {
+    const row = document.createElement('article');
+    row.className = `garden-task${task.completed_at ? ' is-complete' : ''}`;
+    row.dataset.taskScope = scope;
+    const body = document.createElement('div');
+    body.className = 'garden-task-body';
+    const title = document.createElement('strong');
+    title.textContent = task.title;
+    const details = document.createElement('small');
+    const assignments = task.assignments || [];
+    if (task.completed_at && task.completion_mode === 'first') {
+      details.textContent = `أنجزها ${memberName(task.completed_by)}`;
+    } else if (task.task_type === 'main') {
+      const completedNames = assignments
+        .filter((assignment) => assignment.completed_at)
+        .map((assignment) => memberName(assignment.user_id));
+      details.textContent = `مهمة رئيسية · ${formatArabicNumber(completedNames.length)} من ${formatArabicNumber(assignments.length)}${completedNames.length ? ` · ${completedNames.join('، ')}` : ''}`;
+    } else {
+      const completedCount = assignments.filter((assignment) => assignment.completed_at).length;
+      details.textContent = `مكلّف بها: ${assignments.map((assignment) => memberName(assignment.user_id)).join('، ')} · ${formatArabicNumber(completedCount)} من ${formatArabicNumber(assignments.length)}`;
+    }
+    body.append(title, details);
+    row.append(body);
+
+    const ownAssignment = assignments.find((assignment) => assignment.user_id === userId);
+    if (!task.completed_at && ownAssignment && !ownAssignment.completed_at) {
+      const completeButton = document.createElement('button');
+      completeButton.type = 'button';
+      completeButton.className = 'task-action task-check';
+      completeButton.textContent = '✓';
+      completeButton.title = 'علّم المهمة مكتملة';
+      completeButton.setAttribute('aria-label', `إكمال المهمة: ${task.title}`);
+      completeButton.dataset.completeTask = task.id;
+      row.append(completeButton);
+    } else if (ownAssignment?.completed_at && !task.completed_at) {
+      const completedLabel = document.createElement('span');
+      completedLabel.className = 'task-own-complete';
+      completedLabel.textContent = 'أنجزتها ✓';
+      row.append(completedLabel);
+    }
+
+    const canEdit = scope === 'personal' || Boolean(state.sharedFarm);
+    if (canEdit && !task.completed_at) {
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.className = 'task-action';
+      editButton.textContent = 'تعديل';
+      editButton.dataset.editTask = task.id;
+      editButton.dataset.taskScope = scope;
+      row.append(editButton);
+    }
+    if (scope === 'personal' || isFarmManager()) {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'task-action task-delete';
+      deleteButton.textContent = 'حذف';
+      deleteButton.dataset.deleteTask = task.id;
+      row.append(deleteButton);
+    }
+    container.append(row);
+  });
+}
+
+function renderGardenTasks() {
+  renderTaskGroup('#personal-day-tasks', state.personalTasks || [], 'personal', 'day');
+  renderTaskGroup('#personal-week-tasks', state.personalTasks || [], 'personal', 'week');
+  renderTaskGroup('#shared-day-tasks', state.sharedTasks || [], 'shared', 'day');
+  renderTaskGroup('#shared-week-tasks', state.sharedTasks || [], 'shared', 'week');
+}
+
+function renderSharedMembers() {
+  const card = $('#shared-members-card');
+  const tasksCard = $('#shared-tasks-card');
+  card.hidden = !state.sharedFarm;
+  tasksCard.hidden = !state.sharedFarm;
+  if (!state.sharedFarm) return;
+
+  const manager = isFarmManager();
+  const owner = state.sharedFarm.created_by === userId;
+  setText('#farm-role-label', owner ? 'مالك المزرعة' : manager ? 'مشرف' : 'عضو');
+  const list = $('#shared-member-list');
+  list.replaceChildren();
+  state.members.forEach((member) => {
+    const row = document.createElement('div');
+    row.className = 'shared-member';
+    const name = document.createElement('strong');
+    name.textContent = member.display_name || 'عضو';
+    const role = document.createElement('span');
+    role.className = 'member-role';
+    role.textContent = member.user_id === state.sharedFarm.created_by
+      ? 'المالك'
+      : member.role === 'admin' ? 'مشرف' : 'عضو';
+    row.append(name, role);
+
+    const canManageRole = owner && member.user_id !== state.sharedFarm.created_by;
+    const canRemove = manager
+      && member.user_id !== state.sharedFarm.created_by
+      && member.user_id !== userId
+      && (owner || member.role !== 'admin');
+    if (canManageRole) {
+      const roleButton = document.createElement('button');
+      roleButton.type = 'button';
+      roleButton.className = 'task-action';
+      roleButton.textContent = member.role === 'admin' ? 'إزالة الإشراف' : 'تعيين مشرف';
+      roleButton.dataset.memberRole = member.user_id;
+      roleButton.dataset.role = member.role === 'admin' ? 'member' : 'admin';
+      row.append(roleButton);
+    }
+    if (canRemove) {
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'task-action task-delete';
+      removeButton.textContent = 'إزالة';
+      removeButton.dataset.removeMember = member.user_id;
+      row.append(removeButton);
+    }
+    list.append(row);
+  });
+}
+
+function updateTaskFormOptions() {
+  const sharedOptions = $('#shared-task-options');
+  const taskAssignees = $('#garden-task-assignees');
+  const assigneesWrap = $('#task-assignees-wrap');
+  const isShared = $('#task-dialog').dataset.scope === 'shared';
+  const isAssigned = $('#garden-task-type').value === 'assigned';
+  const canAssign = isFarmManager() && !$('#task-dialog').dataset.taskId;
+  sharedOptions.hidden = !isShared;
+  assigneesWrap.hidden = !isShared || !isAssigned || !canAssign;
+  taskAssignees.disabled = !canAssign;
+  $('#garden-task-completion').disabled = !canAssign;
+}
+
+function openGardenTaskDialog(scope, task = null) {
+  const dialog = $('#task-dialog');
+  dialog.dataset.scope = scope;
+  dialog.dataset.taskId = task?.id || '';
+  $('#task-dialog-title').textContent = task ? 'تعديل المهمة' : 'أضف مهمة';
+  $('#task-submit').textContent = task ? 'حفظ التعديل' : 'أضف المهمة';
+  $('#garden-task-title').value = task?.title || '';
+  $('#garden-task-period').value = task?.period || 'day';
+  $('#garden-task-type').value = task?.task_type === 'assigned' ? 'assigned' : 'main';
+  $('#garden-task-completion').value = task?.completion_mode || 'first';
+
+  const assignees = $('#garden-task-assignees');
+  assignees.replaceChildren();
+  state.members.forEach((member) => {
+    const option = new Option(member.display_name, member.user_id);
+    option.selected = member.user_id === userId;
+    assignees.add(option);
+  });
+  if (task) {
+    const assignedIds = new Set((task.assignments || []).map((assignment) => assignment.user_id));
+    [...assignees.options].forEach((option) => { option.selected = assignedIds.has(option.value); });
+  }
+  $('#garden-task-period').disabled = Boolean(task?.completed_at);
+  $('#garden-task-type').disabled = Boolean(task);
+  assignees.disabled = Boolean(task) || !isFarmManager();
+  $('#garden-task-completion').disabled = Boolean(task) || !isFarmManager();
+  updateTaskFormOptions();
+  dialog.showModal();
+  setTimeout(() => $('#garden-task-title').focus(), 0);
+}
+
+async function submitGardenTask(event) {
+  if (event.submitter?.id !== 'task-submit') return;
+  event.preventDefault();
+  const dialog = $('#task-dialog');
+  const scope = dialog.dataset.scope;
+  const taskId = dialog.dataset.taskId;
+  const title = $('#garden-task-title').value.trim();
+  const period = $('#garden-task-period').value;
+  if (!title) return;
+
+  try {
+    if (syncEnabled) {
+      await onlineReady;
+      const { error } = taskId
+        ? await supabase.rpc('update_farm_task', {
+          p_task_id: taskId,
+          p_title: title,
+          p_period: period,
+        })
+        : await supabase.rpc('create_farm_task', {
+          p_farm_id: scope === 'shared' ? state.sharedFarm?.id : null,
+          p_title: title,
+          p_period: period,
+          p_task_type: scope === 'personal' ? 'personal' : $('#garden-task-type').value,
+          p_completion_mode: scope === 'personal' ? 'first' : $('#garden-task-type').value === 'main'
+            ? 'all'
+            : $('#garden-task-completion').value,
+          p_assignee_ids: scope === 'personal'
+            ? [userId]
+            : $('#garden-task-type').value === 'main'
+              ? []
+              : isFarmManager()
+                ? [...$('#garden-task-assignees').selectedOptions].map((option) => option.value)
+                : [userId],
+        });
+      if (error) throw error;
+      await loadFarmData();
+    } else {
+      if (scope === 'shared') throw new Error('المهام المشتركة تحتاج اتصال Supabase.');
+      if (taskId) {
+        const task = state.personalTasks.find((item) => item.id === taskId);
+        if (task) {
+          task.title = title;
+          task.period = period;
+        }
+      } else {
+        state.personalTasks.push({
+          id: crypto.randomUUID(),
+          farm_id: null,
+          owner_id: null,
+          created_by: null,
+          title,
+          period,
+          task_type: 'personal',
+          completion_mode: 'first',
+          completed_by: null,
+          completed_at: null,
+          created_at: new Date().toISOString(),
+          assignments: [{ task_id: null, user_id: userId, completed_at: null }],
+        });
+      }
+      saveState();
+      renderGardenTasks();
+    }
+    dialog.close();
+    showToast(taskId ? 'اتحفظ تعديل المهمة.' : 'اتضافت المهمة بنجاح.');
+  } catch (error) {
+    console.error('Could not save the garden task.', error);
+    showToast(error.message || 'تعذر حفظ المهمة. حاول تاني.', true);
+  }
+}
+
+async function completeGardenTask(taskId, scope) {
+  try {
+    if (syncEnabled) {
+      const { error } = await supabase.rpc('complete_farm_task', { p_task_id: taskId });
+      if (error) throw error;
+      await loadGardenTasks();
+    } else {
+      const task = state.personalTasks.find((item) => item.id === taskId);
+      const assignment = task?.assignments.find((item) => item.user_id === userId);
+      if (!task || !assignment) return;
+      assignment.completed_at = new Date().toISOString();
+      task.completed_by = userId;
+      task.completed_at = task.completion_mode === 'all'
+        && task.assignments.some((item) => !item.completed_at)
+        ? null
+        : assignment.completed_at;
+      saveState();
+    }
+    renderGardenTasks();
+    showToast(scope === 'shared' ? 'اتسجل إنجازك في مهمة المزرعة.' : 'اتعلمت المهمة مكتملة ✓');
+  } catch (error) {
+    console.error('Could not complete the garden task.', error);
+    showToast(error.message || 'تعذر تحديث المهمة. حاول تاني.', true);
+  }
+}
+
+async function deleteGardenTask(taskId, scope) {
+  if (!window.confirm('متأكد إنك عايز تحذف المهمة؟')) return;
+  try {
+    if (syncEnabled) {
+      const { error } = await supabase.rpc('delete_farm_task', { p_task_id: taskId });
+      if (error) throw error;
+      await loadGardenTasks();
+    } else {
+      state.personalTasks = state.personalTasks.filter((task) => task.id !== taskId);
+      saveState();
+    }
+    renderGardenTasks();
+    showToast('اتحذفت المهمة.');
+  } catch (error) {
+    console.error('Could not delete the garden task.', error);
+    showToast(error.message || 'تعذر حذف المهمة.', true);
+  }
+}
+
+async function setFarmMemberRole(memberId, role) {
+  try {
+    const { error } = await supabase.rpc('set_farm_member_role', {
+      p_farm_id: state.sharedFarm.id,
+      p_user_id: memberId,
+      p_role: role,
+    });
+    if (error) throw error;
+    await loadFarmData();
+    showToast(role === 'admin' ? 'اتعيّن مشرف للمزرعة.' : 'اتشالت صلاحية الإشراف.');
+  } catch (error) {
+    console.error('Could not change the farm member role.', error);
+    showToast(error.message || 'تعذر تعديل صلاحية العضو.', true);
+  }
+}
+
+async function removeFarmMember(memberId) {
+  if (!window.confirm('إزالة العضو من المزرعة؟ لن يقدر يشوفها أو يضيف تركيزًا لها.')) return;
+  try {
+    const { error } = await supabase.rpc('remove_farm_member', {
+      p_farm_id: state.sharedFarm.id,
+      p_user_id: memberId,
+    });
+    if (error) throw error;
+    await loadFarmData();
+    showToast('اتشال العضو من المزرعة.');
+  } catch (error) {
+    console.error('Could not remove the farm member.', error);
+    showToast(error.message || 'تعذر إزالة العضو.', true);
+  }
 }
 
 function renderDetailStats() {
@@ -642,7 +995,7 @@ function renderTaskPlan() {
   const plan = `${formatArabicNumber(state.taskTargetMinutes)} د تركيز = ${sessionLabel} + ${breakLabel} · إجمالي ${formatFocusTime(totalElapsed)}`;
   const lastSessionSeconds = requestedSeconds - (sessions - 1) * focusSeconds;
   setText('#plan-summary', plan);
-  setText('#selected-task-title', state.selectedTask ? `المهمة: ${state.selectedTask.title}` : 'اكتب وقت المهمة، وسيقسّمه جذور لجلسات واستراحات.');
+  setText('#selected-task-title', 'اكتب وقت المهمة، وسيقسّمه جذور لجلسات واستراحات.');
   setText('#settings-plan-preview', `مهمة ${formatArabicNumber(state.taskTargetMinutes)} دقيقة على ${sessionLabel} للتركيز، مع ${breakLabel}. الجلسة الأخيرة ${formatArabicNumber(Math.ceil(lastSessionSeconds / 60))} دقيقة.`);
 }
 
@@ -812,9 +1165,6 @@ function finishTaskPlan() {
         : 'برافو! خلصت وقت المهمة المخطط له 🌱',
     recordingFailed || refreshFailed,
   );
-  if (!recordingFailed && state.selectedTask?.completeOnFinish) {
-    void completeMicrosoftTask(state.selectedTask);
-  }
 }
 
 function addLocalFocus(farm, seconds, tree) {
@@ -989,7 +1339,7 @@ async function loadFarmData(preferredFarmId = null) {
   }
   if (farmId) {
     const { data: farm, error: farmError } = await supabase
-      .from('shared_farms').select('id,name,invite_code,sessions,total_seconds,tree_inventory,tree_progress').eq('id', farmId).maybeSingle();
+      .from('shared_farms').select('id,name,invite_code,created_by,sessions,total_seconds,tree_inventory,tree_progress').eq('id', farmId).maybeSingle();
     if (farmError) throw farmError;
     state.sharedFarm = farm;
   } else {
@@ -999,15 +1349,56 @@ async function loadFarmData(preferredFarmId = null) {
   if (state.sharedFarm) {
     localStorage.setItem(`${STORAGE_KEY}-shared-id`, state.sharedFarm.id);
     const { data: members, error: memberError } = await supabase
-      .from('farm_members').select('user_id,display_name').eq('farm_id', state.sharedFarm.id);
+      .from('farm_members').select('user_id,display_name,role').eq('farm_id', state.sharedFarm.id);
     if (memberError) throw memberError;
     state.members = members || [];
   } else {
     state.members = [];
     localStorage.removeItem(`${STORAGE_KEY}-shared-id`);
   }
+  await loadGardenTasks();
   render();
   subscribeToSharedFarm();
+}
+
+async function loadGardenTasks() {
+  if (!syncEnabled || !userId) return;
+  const fields = 'id,farm_id,owner_id,created_by,title,period,task_type,completion_mode,completed_by,completed_at,created_at';
+  const { data: personalTasks, error: personalError } = await supabase
+    .from('farm_tasks')
+    .select(fields)
+    .is('farm_id', null)
+    .eq('owner_id', userId)
+    .gte('created_at', currentWeekStart().toISOString());
+  if (personalError) throw personalError;
+
+  let sharedTasks = [];
+  if (state.sharedFarm) {
+    const { data, error } = await supabase
+      .from('farm_tasks')
+      .select(fields)
+      .eq('farm_id', state.sharedFarm.id)
+      .gte('created_at', currentWeekStart().toISOString());
+    if (error) throw error;
+    sharedTasks = data || [];
+  }
+
+  const taskIds = [...(personalTasks || []), ...sharedTasks].map((task) => task.id);
+  let assignments = [];
+  if (taskIds.length) {
+    const { data, error } = await supabase
+      .from('farm_task_assignments')
+      .select('task_id,user_id,completed_at')
+      .in('task_id', taskIds);
+    if (error) throw error;
+    assignments = data || [];
+  }
+  const withAssignments = (tasks) => tasks.map((task) => ({
+    ...task,
+    assignments: assignments.filter((assignment) => assignment.task_id === task.id),
+  }));
+  state.personalTasks = withAssignments(personalTasks || []);
+  state.sharedTasks = withAssignments(sharedTasks);
 }
 
 function subscribeToSharedFarm() {
@@ -1021,6 +1412,7 @@ function subscribeToSharedFarm() {
   realtimeChannel = supabase.channel(`shared-farm-${farmId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_farms', filter: `id=eq.${farmId}` }, refreshFarmData)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'farm_members', filter: `farm_id=eq.${farmId}` }, refreshFarmData)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'farm_tasks', filter: `farm_id=eq.${farmId}` }, refreshFarmData)
     .subscribe((status) => {
       if (status === 'CHANNEL_ERROR') showToast('تعذرت المزامنة المباشرة. تحقق من إعدادات Realtime.', true);
     });
@@ -1121,181 +1513,6 @@ async function signInWithGoogle() {
   }
 }
 
-async function getMicrosoftToken() {
-  if (!msalClient) throw new Error('أضف VITE_MS_TODO_CLIENT_ID في ملف البيئة أولًا.');
-  const redirectResult = await initializeMsal();
-  let account = redirectResult?.account || msalClient.getActiveAccount() || msalClient.getAllAccounts()[0];
-  if (!account) {
-    localStorage.setItem(MS_TODO_PENDING_KEY, 'true');
-    await msalClient.loginRedirect({ scopes: ['User.Read', 'Tasks.ReadWrite'] });
-    return null;
-  }
-  try {
-    const result = await msalClient.acquireTokenSilent({
-      account,
-      scopes: ['User.Read', 'Tasks.ReadWrite'],
-    });
-    return requireMicrosoftAccessToken(result.accessToken);
-  } catch (error) {
-    if (error.name !== 'InteractionRequiredAuthError') throw error;
-    localStorage.setItem(MS_TODO_PENDING_KEY, 'true');
-    await msalClient.acquireTokenRedirect({
-      account,
-      scopes: ['User.Read', 'Tasks.ReadWrite'],
-    });
-    return null;
-  }
-}
-
-async function initializeMsal() {
-  if (!msalInitialization) {
-    msalInitialization = (async () => {
-      await msalClient.initialize();
-      const result = await msalClient.handleRedirectPromise();
-      if (result?.account) msalClient.setActiveAccount(result.account);
-      return result;
-    })();
-  }
-  return msalInitialization;
-}
-
-function requireMicrosoftAccessToken(token) {
-  if (typeof token !== 'string' || !token.trim()) {
-    throw new Error('لم تُرجع Microsoft رمز وصول. أعد ربط حساب Microsoft ثم حاول مجددًا.');
-  }
-  return token;
-}
-
-async function graphGetAll(url, token) {
-  requireMicrosoftAccessToken(token);
-  const values = [];
-  let next = url;
-  while (next) {
-    const response = await fetch(next, { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) {
-      const responseBody = await response.text();
-      let errorDetails = responseBody;
-      if (responseBody) {
-        try {
-          const graphError = JSON.parse(responseBody).error;
-          if (graphError) {
-            errorDetails = [graphError.code, graphError.message].filter(Boolean).join(': ');
-          }
-        } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
-        }
-      }
-      throw new Error(`Microsoft Graph: ${response.status} ${errorDetails || response.statusText}`);
-    }
-    const page = await response.json();
-    values.push(...(page.value || []));
-    next = page['@odata.nextLink'] || null;
-  }
-  return values;
-}
-
-async function connectMicrosoftToDo() {
-  if (!msalClient) {
-    setIntegrationStatus('#todo-status', 'غير متاح — أضف معرّف تطبيق Microsoft أولًا.', false, true);
-    showToast('أضف معرّف تطبيق Microsoft إلى .env.local حسب دليل التشغيل.', true);
-    return;
-  }
-  const button = $('#todo-connect');
-  button.disabled = true;
-  button.textContent = 'جاري الربط…';
-  setIntegrationStatus('#todo-status', 'جاري الاتصال بـ Microsoft To Do…');
-  try {
-    const token = await getMicrosoftToken();
-    if (!token) return;
-    const lists = await graphGetAll('https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName', token);
-    const taskSets = await Promise.all(lists.map(async (list) => {
-      const tasks = await graphGetAll(
-        `https://graph.microsoft.com/v1.0/me/todo/lists/${encodeURIComponent(list.id)}/tasks?$select=id,title,status`,
-        token,
-      );
-      return tasks.filter((task) => task.status !== 'completed')
-        .map((task) => ({ id: task.id, listId: list.id, title: task.title, listName: list.displayName }));
-    }));
-    const tasks = taskSets.flat();
-    const select = $('#todo-task-select');
-    select.replaceChildren(new Option('اختار مهمة من القائمة', ''));
-    tasks.forEach((task) => {
-      const option = new Option(`${task.title} · ${task.listName}`, `${task.listId}:${task.id}`);
-      select.add(option);
-    });
-    $('#todo-panel').hidden = false;
-    button.textContent = 'تحديث المهام';
-    setIntegrationStatus(
-      '#todo-status',
-      `تم الاتصال بـ Microsoft To Do ✓ · ${formatArabicNumber(tasks.length)} مهمة متاحة.`,
-      true,
-    );
-    showToast('تم الاتصال بـ Microsoft To Do بنجاح ✓ اختار مهمة وحدد مدتها.');
-  } catch (error) {
-    localStorage.removeItem(MS_TODO_PENDING_KEY);
-    console.error('Could not load Microsoft To Do tasks.', error);
-    button.textContent = 'ربط المهام';
-    setIntegrationStatus('#todo-status', 'فشل الاتصال بـ Microsoft To Do. تحقق من الصلاحيات وحاول مجددًا.', false, true);
-    showToast(error.message || 'تعذر الاتصال بـ Microsoft To Do.', true);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function restoreMicrosoftConnection() {
-  if (!msalClient) return;
-  try {
-    const redirectResult = await initializeMsal();
-    const account = redirectResult?.account || msalClient.getActiveAccount() || msalClient.getAllAccounts()[0];
-    if (!account) return;
-    if (localStorage.getItem(MS_TODO_PENDING_KEY)) {
-      localStorage.removeItem(MS_TODO_PENDING_KEY);
-      await connectMicrosoftToDo();
-      return;
-    }
-    const result = await msalClient.acquireTokenSilent({
-      account,
-      scopes: ['User.Read', 'Tasks.ReadWrite'],
-    });
-    const lists = await graphGetAll(
-      'https://graph.microsoft.com/v1.0/me/todo/lists?$select=id,displayName',
-      result.accessToken,
-    );
-    setIntegrationStatus(
-      '#todo-status',
-      `تم الاتصال بـ Microsoft To Do ✓ · ${formatArabicNumber(lists.length)} قائمة متاحة.`,
-      true,
-    );
-    $('#todo-connect').textContent = 'تحديث المهام';
-  } catch (error) {
-    if (error.name !== 'InteractionRequiredAuthError') {
-      console.error('Could not restore Microsoft To Do connection.', error);
-      setIntegrationStatus('#todo-status', 'تعذر التحقق من اتصال Microsoft To Do. أعد الربط.', false, true);
-    }
-  }
-}
-
-async function completeMicrosoftTask(task) {
-  try {
-    const token = await getMicrosoftToken();
-    if (!token) return;
-    requireMicrosoftAccessToken(token);
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/me/todo/lists/${encodeURIComponent(task.listId)}/tasks/${encodeURIComponent(task.id)}`,
-      {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      },
-    );
-    if (!response.ok) throw new Error(`Microsoft Graph: ${response.status} ${response.statusText}`);
-    showToast('اتعلّمت المهمة مكتملة في Microsoft To Do ✓');
-  } catch (error) {
-    console.error('Could not mark the Microsoft To Do task as completed.', error);
-    showToast('خلصت وقت المهمة، لكن ما قدرناش نحدّث Microsoft To Do.', true);
-  }
-}
-
 function saveFocusSettings() {
   const focusInput = $('#setting-focus-minutes');
   const breakInput = $('#setting-break-minutes');
@@ -1353,28 +1570,26 @@ function wireEvents() {
   });
   $('#google-connect').addEventListener('click', linkGoogleAccount);
   $('#google-login').addEventListener('click', signInWithGoogle);
-  $('#todo-connect').addEventListener('click', connectMicrosoftToDo);
-  $('#todo-task-select').addEventListener('change', (event) => {
-    $('#todo-use-task').disabled = !event.target.value;
+  $$('[data-add-task]').forEach((button) => {
+    button.addEventListener('click', () => openGardenTaskDialog(button.dataset.addTask));
   });
-  $('#todo-use-task').addEventListener('click', () => {
-    const selected = $('#todo-task-select');
-    const [listId, id] = selected.value.split(':');
-    if (!listId || !id) return;
-    state.selectedTask = {
-      id,
-      listId,
-      title: selected.selectedOptions[0].textContent.split(' · ')[0],
-      completeOnFinish: $('#todo-complete-on-finish').checked,
-    };
-    saveState();
-    renderTaskPlan();
-    showToast('اتحدد هدفك. اكتب المدة واضغط احسب الخطة.');
-  });
-  $('#todo-complete-on-finish').addEventListener('change', (event) => {
-    if (state.selectedTask) {
-      state.selectedTask.completeOnFinish = event.target.checked;
-      saveState();
+  $('#garden-task-type').addEventListener('change', updateTaskFormOptions);
+  $('#task-form').addEventListener('submit', submitGardenTask);
+  document.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('button') : null;
+    if (!button) return;
+    if (button.dataset.completeTask) {
+      void completeGardenTask(button.dataset.completeTask, button.closest('.garden-task').dataset.taskScope);
+    } else if (button.dataset.deleteTask) {
+      void deleteGardenTask(button.dataset.deleteTask, button.closest('.garden-task').dataset.taskScope);
+    } else if (button.dataset.editTask) {
+      const tasks = button.dataset.taskScope === 'shared' ? state.sharedTasks : state.personalTasks;
+      const task = tasks.find((item) => item.id === button.dataset.editTask);
+      if (task) openGardenTaskDialog(button.dataset.taskScope, task);
+    } else if (button.dataset.memberRole) {
+      void setFarmMemberRole(button.dataset.memberRole, button.dataset.role);
+    } else if (button.dataset.removeMember) {
+      void removeFarmMember(button.dataset.removeMember);
     }
   });
   $('#share-focus-toggle').addEventListener('change', (event) => {
@@ -1467,7 +1682,6 @@ initializeDate();
 render();
 resumePersistedTimer();
 if (syncEnabled) onlineReady = initializeOnline();
-if (msalClient) void restoreMicrosoftConnection();
 
 const inviteCode = new URLSearchParams(window.location.search).get('join');
 if (inviteCode && syncEnabled) {

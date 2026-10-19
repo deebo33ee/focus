@@ -86,6 +86,11 @@
           </div>
           <div class="detail-stats" id="personal-detail-stats"></div>
           <div class="info-strip"><span class="info-icon">✳</span><span>وقت تركيزك بيتراكم للشجرة اللي اخترتها، وكل نوع له وقت نمو مختلف.</span><button data-page="settings">اختار شجرة <span>←</span></button></div>
+          <section class="garden-tasks-card">
+            <div class="tasks-heading"><div><p class="eyebrow">خطوتك الجاية</p><h2>مهام مزرعتي</h2></div><button class="integration-button" data-add-task="personal">＋ أضف مهمة</button></div>
+            <h3>مهام اليوم</h3><div class="garden-task-list" id="personal-day-tasks"></div>
+            <h3>مهام الأسبوع</h3><div class="garden-task-list" id="personal-week-tasks"></div>
+          </section>
         </section>
 
         <section class="page-view" id="page-shared-garden">
@@ -97,6 +102,15 @@
           </div>
           <div class="shared-callout"><span class="callout-icon">✦</span><div><strong>جلسة واحدة منك تفرق!</strong><p>فعّل المشاركة عشان وقتك يضيف تقدمًا للشجرة المختارة في المزرعة المشتركة كمان.</p></div><label class="switch"><input type="checkbox" id="share-focus-toggle" /><span class="switch-slider"></span><span class="switch-copy">ازرع في مزرعتنا</span></label></div>
           <div class="invite-empty" id="invite-empty"><span>♡</span><p>لسه مفيش مزرعة مشتركة — اعملوا واحدة وابدأوا تزرعوا سوا.</p><button id="create-farm">إنشاء مزرعة مشتركة</button><button class="join-text" id="join-farm">عندي رمز دعوة</button></div>
+          <section class="garden-tasks-card" id="shared-members-card" hidden>
+            <div class="tasks-heading"><div><p class="eyebrow">فريق المزرعة</p><h2>الأعضاء والصلاحيات</h2></div><span id="farm-role-label" class="farm-role-label"></span></div>
+            <div id="shared-member-list" class="shared-member-list"></div>
+          </section>
+          <section class="garden-tasks-card" id="shared-tasks-card" hidden>
+            <div class="tasks-heading"><div><p class="eyebrow">ننجزها سوا</p><h2>مهام مزرعتنا</h2></div><button class="integration-button" data-add-task="shared">＋ أضف مهمة</button></div>
+            <h3>مهام اليوم</h3><div class="garden-task-list" id="shared-day-tasks"></div>
+            <h3>مهام الأسبوع</h3><div class="garden-task-list" id="shared-week-tasks"></div>
+          </section>
         </section>
 
         <section class="page-view" id="page-settings">
@@ -115,11 +129,9 @@
             <div class="tree-catalog" id="tree-catalog"></div>
           </section>
           <section class="settings-card integrations-card">
-            <div class="settings-heading"><span class="settings-icon">↗</span><div><h2>حساباتك ومهامك</h2><p>اربط خدماتك عشان تحتفظ بمزرعتك وتتابع مهامك.</p></div></div>
+            <div class="settings-heading"><span class="settings-icon">↗</span><div><h2>حسابك ومزامنتك</h2><p>اربط حساب Google عشان تحتفظ بمزرعتك.</p></div></div>
             <div class="integration-row"><span class="integration-logo google-logo">G</span><div><strong>حساب Google</strong><small id="google-status" class="integration-status" aria-live="polite">غير متصل — اربط حسابك لحفظ المزرعة.</small></div><button id="google-connect" class="integration-button">حفظ المزرعة</button><button id="google-login" class="integration-button">دخول</button></div>
-            <div class="integration-row"><span class="integration-logo microsoft-logo">▦</span><div><strong>Microsoft To Do</strong><small id="todo-status" class="integration-status" aria-live="polite">غير متصل — اربط حسابك لتحميل المهام.</small></div><button id="todo-connect" class="integration-button">ربط المهام</button></div>
-            <div class="todo-panel" id="todo-panel" hidden><label for="todo-task-select">اختار مهمة</label><select id="todo-task-select"><option value="">اختار مهمة من القائمة</option></select><label class="todo-complete-option"><input type="checkbox" id="todo-complete-on-finish" /> علّمها مكتملة لما تخلص وقت المهمة</label><button id="todo-use-task" class="integration-button" disabled>استخدم المهمة كهدف</button></div>
-            <p class="integration-footnote" id="integration-help">تفعيل Google وMicrosoft يتطلب إضافة معرّفات التطبيقات في إعدادات المشروع. تفاصيل الإعداد في دليل التشغيل.</p>
+            <p class="integration-footnote" id="integration-help">تفعيل Google يتطلب إعداد المزوّد في Supabase. تفاصيل الإعداد في دليل التشغيل.</p>
           </section>
         </section>
 
@@ -135,8 +147,9 @@
       <button class="mobile-nav-item" data-page="shared-garden"><span>♧</span><small>مزرعتنا</small></button>
       <button class="mobile-nav-item" data-page="settings"><span>⚙</span><small>الإعدادات</small></button>
     </nav>
-    <dialog class="app-dialog" id="name-dialog"><form method="dialog"><button class="dialog-close" value="cancel" aria-label="إغلاق">×</button><span class="dialog-symbol">✳</span><h2 id="name-dialog-title">اسمك في المزرعة</h2><p id="name-dialog-copy">خلي أصحابك يعرفوا إن الشجرة دي منك.</p><label for="display-name-input">اسمك</label><input id="display-name-input" maxlength="24" placeholder="مثلاً: نور" required /><div class="dialog-actions"><button class="primary-dialog-button" id="name-dialog-submit" value="submit">كمّل</button><button class="secondary-dialog-button" value="cancel">إلغاء</button></div></form></dialog>
-    <dialog class="app-dialog" id="join-dialog"><form method="dialog"><button class="dialog-close" value="cancel" aria-label="إغلاق">×</button><span class="dialog-symbol">↗</span><h2>انضم لمزرعة أصحابك</h2><p>اكتب رمز الدعوة اللي صاحبك بعتهولك.</p><label for="invite-code-input">رمز الدعوة</label><input id="invite-code-input" maxlength="12" placeholder="مثال: ABC123XY" autocomplete="off" required /><label for="join-name-input">اسمك في المزرعة</label><input id="join-name-input" maxlength="24" placeholder="اسمك" required /><div class="dialog-actions"><button class="primary-dialog-button" id="join-dialog-submit" value="submit">انضم للمزرعة</button><button class="secondary-dialog-button" value="cancel">إلغاء</button></div></form></dialog>
+    <dialog class="app-dialog" id="task-dialog"><form id="task-form" method="dialog"><button class="dialog-close" value="cancel" formnovalidate aria-label="إغلاق">×</button><span class="dialog-symbol">✓</span><h2 id="task-dialog-title">أضف مهمة</h2><label for="garden-task-title">اسم المهمة</label><input id="garden-task-title" maxlength="120" placeholder="مثلاً: قراءة فصل" required /><label for="garden-task-period">موعدها</label><select id="garden-task-period"><option value="day">مهمة اليوم</option><option value="week">مهمة الأسبوع</option></select><div id="shared-task-options" hidden><label for="garden-task-type">نوع المهمة</label><select id="garden-task-type"><option value="main">مهمة رئيسية — كل الأعضاء ينجزونها</option><option value="assigned">مهمة مسندة لشخص أو أكثر</option></select><div id="task-assignees-wrap" hidden><label for="garden-task-assignees">اختار الأعضاء المكلّفين</label><select id="garden-task-assignees" multiple size="3"></select><label for="garden-task-completion">متى تكتمل؟</label><select id="garden-task-completion"><option value="first">أول مكلّف ينجزها</option><option value="all">كل المكلّفين ينجزونها</option></select></div></div><div class="dialog-actions"><button class="primary-dialog-button" id="task-submit" value="submit">أضف المهمة</button><button class="secondary-dialog-button" value="cancel" formnovalidate>إلغاء</button></div></form></dialog>
+    <dialog class="app-dialog" id="name-dialog"><form method="dialog"><button class="dialog-close" value="cancel" formnovalidate aria-label="إغلاق">×</button><span class="dialog-symbol">✳</span><h2 id="name-dialog-title">اسمك في المزرعة</h2><p id="name-dialog-copy">خلي أصحابك يعرفوا إن الشجرة دي منك.</p><label for="display-name-input">اسمك</label><input id="display-name-input" maxlength="24" placeholder="مثلاً: نور" required /><div class="dialog-actions"><button class="primary-dialog-button" id="name-dialog-submit" value="submit">كمّل</button><button class="secondary-dialog-button" value="cancel" formnovalidate>إلغاء</button></div></form></dialog>
+    <dialog class="app-dialog" id="join-dialog"><form method="dialog"><button class="dialog-close" value="cancel" formnovalidate aria-label="إغلاق">×</button><span class="dialog-symbol">↗</span><h2>انضم لمزرعة أصحابك</h2><p>اكتب رمز الدعوة اللي صاحبك بعتهولك.</p><label for="invite-code-input">رمز الدعوة</label><input id="invite-code-input" maxlength="12" placeholder="مثال: ABC123XY" autocomplete="off" required /><label for="join-name-input">اسمك في المزرعة</label><input id="join-name-input" maxlength="24" placeholder="اسمك" required /><div class="dialog-actions"><button class="primary-dialog-button" id="join-dialog-submit" value="submit">انضم للمزرعة</button><button class="secondary-dialog-button" value="cancel" formnovalidate>إلغاء</button></div></form></dialog>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
