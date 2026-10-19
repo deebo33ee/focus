@@ -1072,6 +1072,11 @@ async function completeGardenTask(taskId, scope) {
         : assignment.completed_at;
       saveState();
     }
+    if (state.selectedFocusTask?.id === taskId) {
+      state.selectedFocusTask = null;
+      saveState();
+      renderTaskPlan();
+    }
     renderGardenTasks();
     renderFocusTasks();
     showToast(scope === 'shared' ? 'اتسجل إنجازك في مهمة المزرعة.' : 'اتعلمت المهمة مكتملة ✓');
