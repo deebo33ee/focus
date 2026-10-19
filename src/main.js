@@ -182,6 +182,32 @@ function setIntegrationStatus(selector, message, connected = false, error = fals
   element.classList.toggle('is-error', error);
 }
 
+function googleIdentity(user) {
+  const identity = user?.identities?.find((entry) => entry.provider === 'google');
+  const isGoogleLinked = Boolean(identity)
+    || user?.app_metadata?.provider === 'google'
+    || user?.app_metadata?.providers?.includes('google');
+  return {
+    isGoogleLinked,
+    email: identity?.identity_data?.email || (isGoogleLinked ? user?.email : null) || null,
+  };
+}
+
+function updateGoogleAccountUi(user) {
+  const { isGoogleLinked, email } = googleIdentity(user);
+  setIntegrationStatus(
+    '#google-status',
+    isGoogleLinked
+      ? (email ? `البريد الإلكتروني: ${email}` : 'تم تسجيل الدخول بحساب Google.')
+      : 'غير متصل — اربط حسابك لحفظ المزرعة.',
+    isGoogleLinked,
+  );
+  const connectButton = $('#google-connect');
+  connectButton.textContent = isGoogleLinked ? 'تسجيل الخروج' : 'حفظ المزرعة';
+  connectButton.dataset.action = isGoogleLinked ? 'sign-out' : 'link';
+  $('#google-login').hidden = isGoogleLinked;
+}
+
 function sumTrees(inventory = {}) {
   return Object.values(inventory).reduce((total, count) => total + Number(count || 0), 0);
 }
@@ -797,10 +823,9 @@ function renderFocusTasks() {
   const container = $('#focus-day-tasks');
   container.replaceChildren();
   const tasks = [
-    ...(state.personalTasks || []).filter((task) => task.period === 'day' && !task.completed_at && isWithinTaskPeriod(task)),
+    ...(state.personalTasks || []).filter((task) => task.period === 'day' && isWithinTaskPeriod(task)),
     ...(state.sharedTasks || []).filter((task) => (
       task.period === 'day'
-      && !task.completed_at
       && isWithinTaskPeriod(task)
       && (task.task_type !== 'assigned' || isFarmManager()
         || (task.assignments || []).some((assignment) => assignment.user_id === userId))
@@ -815,18 +840,38 @@ function renderFocusTasks() {
   }
   tasks.forEach((task) => {
     const scope = task.farm_id ? 'shared' : 'personal';
+    const ownAssignment = (task.assignments || []).find((assignment) => assignment.user_id === userId);
+    const completedForUser = Boolean(task.completed_at || ownAssignment?.completed_at);
+    const canComplete = scope === 'personal' || Boolean(ownAssignment);
     const row = document.createElement('div');
-    row.className = `focus-day-task${state.selectedFocusTask?.id === task.id ? ' selected' : ''}`;
+    row.className = `focus-day-task${state.selectedFocusTask?.id === task.id ? ' selected' : ''}${completedForUser ? ' is-complete' : ''}`;
     const title = document.createElement('span');
     title.textContent = task.title;
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'task-action focus-task-action';
-    button.textContent = state.selectedFocusTask?.id === task.id ? 'مختارة' : 'اختيار';
-    button.dataset.focusTask = task.id;
-    button.dataset.taskScope = scope;
-    button.setAttribute('aria-pressed', String(state.selectedFocusTask?.id === task.id));
-    row.append(title, button);
+    const actions = document.createElement('div');
+    actions.className = 'focus-task-actions';
+    const completeButton = document.createElement('button');
+    completeButton.type = 'button';
+    completeButton.className = `focus-task-complete${completedForUser ? ' is-complete' : ''}`;
+    completeButton.textContent = completedForUser ? '✓' : '';
+    completeButton.disabled = completedForUser || !canComplete;
+    completeButton.title = completedForUser ? 'المهمة مكتملة' : 'علّم المهمة مكتملة';
+    completeButton.setAttribute('aria-label', completedForUser
+      ? `المهمة مكتملة: ${task.title}`
+      : `إكمال المهمة: ${task.title}`);
+    if (!completedForUser && canComplete) {
+      completeButton.dataset.completeFocusTask = task.id;
+      completeButton.dataset.taskScope = scope;
+    }
+    const selectButton = document.createElement('button');
+    selectButton.type = 'button';
+    selectButton.className = 'task-action focus-task-action';
+    selectButton.textContent = state.selectedFocusTask?.id === task.id ? 'مختارة' : 'اختيار';
+    selectButton.dataset.focusTask = task.id;
+    selectButton.dataset.taskScope = scope;
+    selectButton.setAttribute('aria-pressed', String(state.selectedFocusTask?.id === task.id));
+    selectButton.disabled = completedForUser;
+    actions.append(completeButton, selectButton);
+    row.append(title, actions);
     container.append(row);
   });
 }
@@ -1734,13 +1779,8 @@ async function initializeOnline() {
       session = data.session;
     }
     userId = session.user.id;
-    const isGoogleLinked = session.user.identities?.some((identity) => identity.provider === 'google');
-    setIntegrationStatus(
-      '#google-status',
-      isGoogleLinked ? 'تم الاتصال بحساب Google ✓' : 'غير متصل — اربط حسابك لحفظ المزرعة.',
-      Boolean(isGoogleLinked),
-    );
-    setText('#google-connect', isGoogleLinked ? 'مرتبط' : 'حفظ المزرعة');
+    const { isGoogleLinked } = googleIdentity(session.user);
+    updateGoogleAccountUi(session.user);
     if (isGoogleLinked && localStorage.getItem(`${STORAGE_KEY}-google-pending`) === 'true') {
       localStorage.removeItem(`${STORAGE_KEY}-google-pending`);
       showToast('تم الاتصال بحساب Google بنجاح ✓');
@@ -1768,6 +1808,16 @@ async function linkGoogleAccount() {
     showToast('تعذر تهيئة الحساب. راجع Supabase وحاول تاني.', true);
     return;
   }
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error('Could not read the current Google account session.', sessionError);
+    showToast('تعذر التحقق من حسابك. حاول مرة أخرى.', true);
+    return;
+  }
+  if (googleIdentity(sessionData.session?.user).isGoogleLinked) {
+    await signOutGoogleAccount();
+    return;
+  }
   setIntegrationStatus('#google-status', 'جاري الاتصال بحساب Google…');
   try {
     const { data, error } = await supabase.auth.linkIdentity({
@@ -1783,6 +1833,31 @@ async function linkGoogleAccount() {
     console.error('Could not link the Google account.', error);
     setIntegrationStatus('#google-status', 'فشل الاتصال بحساب Google. تحقق من إعدادات المزوّد.', false, true);
     showToast(error.message || 'تعذر ربط حساب Google. راجع تفعيل المزود وإعدادات الربط في Supabase.', true);
+  }
+}
+
+async function signOutGoogleAccount() {
+  const connectButton = $('#google-connect');
+  const loginButton = $('#google-login');
+  connectButton.disabled = true;
+  loginButton.disabled = true;
+  try {
+    await flushPendingPointAwards();
+    if (state.pendingPointAwards.length) {
+      throw new Error('تعذر حفظ نقاطك المعلقة. اتصل بالإنترنت ثم حاول تسجيل الخروج مرة أخرى.');
+    }
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+    userId = null;
+    localStorage.removeItem(`${STORAGE_KEY}-shared-id`);
+    await initializeOnline();
+    showToast('تم تسجيل الخروج من Google.');
+  } catch (error) {
+    console.error('Could not sign out of the Google account.', error);
+    showToast(error.message || 'تعذر تسجيل الخروج. حاول مرة أخرى.', true);
+  } finally {
+    connectButton.disabled = false;
+    loginButton.disabled = false;
   }
 }
 
@@ -1891,6 +1966,8 @@ function wireEvents() {
     if (!button) return;
     if (button.dataset.completeTask) {
       void completeGardenTask(button.dataset.completeTask, button.closest('.garden-task').dataset.taskScope);
+    } else if (button.dataset.completeFocusTask) {
+      void completeGardenTask(button.dataset.completeFocusTask, button.dataset.taskScope);
     } else if (button.dataset.focusTask) {
       focusOnTask(button.dataset.focusTask, button.dataset.taskScope);
     } else if (button.dataset.purchaseTree) {
