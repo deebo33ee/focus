@@ -842,7 +842,12 @@ function renderFocusTasks() {
     const scope = task.farm_id ? 'shared' : 'personal';
     const ownAssignment = (task.assignments || []).find((assignment) => assignment.user_id === userId);
     const completedForUser = Boolean(task.completed_at || ownAssignment?.completed_at);
-    const canComplete = scope === 'personal' || Boolean(ownAssignment);
+    const canToggleCompletion = scope === 'personal' || Boolean(ownAssignment);
+    const canUndoCompletion = canToggleCompletion && (
+      !task.completed_at
+      || task.completed_by === userId
+      || Boolean(ownAssignment?.completed_at)
+    );
     const row = document.createElement('div');
     row.className = `focus-day-task${state.selectedFocusTask?.id === task.id ? ' selected' : ''}${completedForUser ? ' is-complete' : ''}`;
     const title = document.createElement('span');
@@ -853,13 +858,15 @@ function renderFocusTasks() {
     completeButton.type = 'button';
     completeButton.className = `focus-task-complete${completedForUser ? ' is-complete' : ''}`;
     completeButton.textContent = completedForUser ? '✓' : '';
-    completeButton.disabled = completedForUser || !canComplete;
-    completeButton.title = completedForUser ? 'المهمة مكتملة' : 'علّم المهمة مكتملة';
+    completeButton.disabled = !canUndoCompletion;
+    completeButton.title = completedForUser
+      ? canUndoCompletion ? 'إلغاء إكمال المهمة' : 'المهمة مكتملة'
+      : canToggleCompletion ? 'علّم المهمة مكتملة' : 'المهمة غير مسندة إليك';
     completeButton.setAttribute('aria-label', completedForUser
-      ? `المهمة مكتملة: ${task.title}`
+      ? canUndoCompletion ? `إلغاء إكمال المهمة: ${task.title}` : `المهمة مكتملة: ${task.title}`
       : `إكمال المهمة: ${task.title}`);
-    if (!completedForUser && canComplete) {
-      completeButton.dataset.completeFocusTask = task.id;
+    if (canUndoCompletion) {
+      completeButton.dataset.toggleFocusTask = task.id;
       completeButton.dataset.taskScope = scope;
     }
     const selectButton = document.createElement('button');
@@ -1054,35 +1061,49 @@ async function submitGardenTask(event) {
   }
 }
 
-async function completeGardenTask(taskId, scope) {
+async function toggleGardenTaskCompletion(taskId, scope) {
   try {
     if (syncEnabled) {
-      const { error } = await supabase.rpc('complete_farm_task', { p_task_id: taskId });
+      const { error } = await supabase.rpc('toggle_farm_task', { p_task_id: taskId });
       if (error) throw error;
       await loadGardenTasks();
     } else {
-      const task = state.personalTasks.find((item) => item.id === taskId);
+      const tasks = scope === 'shared' ? state.sharedTasks : state.personalTasks;
+      const task = tasks.find((item) => item.id === taskId);
       const assignment = task?.assignments.find((item) => item.user_id === userId);
       if (!task || !assignment) return;
-      assignment.completed_at = new Date().toISOString();
-      task.completed_by = userId;
-      task.completed_at = task.completion_mode === 'all'
-        && task.assignments.some((item) => !item.completed_at)
-        ? null
-        : assignment.completed_at;
+      if (assignment.completed_at || (task.completed_at && task.completed_by === userId)) {
+        assignment.completed_at = null;
+        if (task.completed_by === userId || task.completion_mode === 'all') {
+          task.completed_by = null;
+          task.completed_at = null;
+        }
+      } else {
+        if (task.completed_at) return;
+        assignment.completed_at = new Date().toISOString();
+        if (task.completion_mode === 'first'
+          || task.assignments.every((item) => item.completed_at)) {
+          task.completed_by = userId;
+          task.completed_at = assignment.completed_at;
+        }
+      }
       saveState();
     }
-    if (state.selectedFocusTask?.id === taskId) {
+    const task = (scope === 'shared' ? state.sharedTasks : state.personalTasks)
+      .find((item) => item.id === taskId);
+    const assignment = task?.assignments.find((item) => item.user_id === userId);
+    const stillCompleted = Boolean(task?.completed_at || assignment?.completed_at);
+    if (stillCompleted && state.selectedFocusTask?.id === taskId) {
       state.selectedFocusTask = null;
       saveState();
       renderTaskPlan();
     }
     renderGardenTasks();
     renderFocusTasks();
-    showToast(scope === 'shared' ? 'اتسجل إنجازك في مهمة المزرعة.' : 'اتعلمت المهمة مكتملة ✓');
+    showToast(stillCompleted ? 'اتعلمت المهمة مكتملة ✓' : 'تم إلغاء إكمال المهمة.');
   } catch (error) {
-    console.error('Could not complete the garden task.', error);
-    showToast(error.message || 'تعذر تحديث المهمة. حاول تاني.', true);
+    console.error('Could not toggle the garden task completion.', error);
+    showToast(error.message || 'تعذر تحديث حالة المهمة. حاول تاني.', true);
   }
 }
 
@@ -1970,9 +1991,9 @@ function wireEvents() {
     const button = event.target instanceof Element ? event.target.closest('button') : null;
     if (!button) return;
     if (button.dataset.completeTask) {
-      void completeGardenTask(button.dataset.completeTask, button.closest('.garden-task').dataset.taskScope);
-    } else if (button.dataset.completeFocusTask) {
-      void completeGardenTask(button.dataset.completeFocusTask, button.dataset.taskScope);
+      void toggleGardenTaskCompletion(button.dataset.completeTask, button.closest('.garden-task').dataset.taskScope);
+    } else if (button.dataset.toggleFocusTask) {
+      void toggleGardenTaskCompletion(button.dataset.toggleFocusTask, button.dataset.taskScope);
     } else if (button.dataset.focusTask) {
       focusOnTask(button.dataset.focusTask, button.dataset.taskScope);
     } else if (button.dataset.purchaseTree) {

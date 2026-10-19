@@ -829,30 +829,53 @@ body { color: #e8eefb; background: linear-gradient(160deg, #0a1428 0%, #12244a 1
 .focus-task-picker { width: 100%; margin-top: 12px; }
 .focus-task-heading { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #e8eefb; font-size: 13px; }
 .focus-day-tasks { display: grid; gap: 7px; width: 100%; }
-.focus-day-task { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #223a66; border-radius: 10px; color: #e8eefb; background: #0d1b36; font-size: 12px; }
+.focus-day-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 1px solid #223a66;
+  border-radius: 12px;
+  color: #e8eefb;
+  background: #0d1b36;
+  font-size: 13px;
+  transition: border-color .18s ease, background .18s ease;
+}
+.focus-day-task:hover { border-color: #365789; }
 .focus-day-task.selected { border-color: #3b82f6; background: #173063; }
 .focus-day-task.is-complete > span { color: #a9b9d9; text-decoration: line-through; }
-.focus-task-actions { display: flex; align-items: center; gap: 8px; }
+.focus-task-actions { display: flex; align-items: center; gap: 10px; }
 .focus-task-complete {
   display: grid;
   place-items: center;
-  flex: 0 0 25px;
-  width: 25px;
-  height: 25px;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 2px solid #7890b5;
   border-radius: 50%;
   color: #fff;
-  background: transparent;
-  font-size: 15px;
+  background: #0a1730;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
-.focus-task-complete:hover:not(:disabled) { border-color: #6cc27f; background: #1f5a45; }
-.focus-task-complete.is-complete,
-.focus-task-complete:disabled:not(.is-complete) { border-color: #6cc27f; background: #2a7355; }
+.focus-task-complete:hover:not(:disabled) {
+  border-color: #6cc27f;
+  background: #1f5a45;
+  transform: scale(1.08);
+}
+.focus-task-complete.is-complete {
+  border-color: #6cc27f;
+  background: #2a7355;
+  box-shadow: inset 0 0 0 1px #8fd89a55;
+}
 .focus-task-complete:disabled { cursor: default; }
-.focus-task-action { white-space: nowrap; }
+.focus-task-action { min-width: 68px; white-space: nowrap; }
 .tree-catalog { gap: 12px; }
 .tree-choice { padding: 14px 9px; }
 .tree-choice strong { font-size: 13px; }

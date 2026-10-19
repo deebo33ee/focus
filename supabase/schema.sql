@@ -698,6 +698,76 @@ begin
 end;
 $$;
 
+create or replace function public.toggle_farm_task(p_task_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_task public.farm_tasks;
+  v_assignment_completed_at timestamptz;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+  select * into v_task
+  from public.farm_tasks
+  where id = p_task_id
+  for update;
+  if not found then
+    raise exception 'Task not found';
+  end if;
+  if v_task.farm_id is null then
+    if v_task.owner_id <> auth.uid() then
+      raise exception 'You cannot change this task';
+    end if;
+  elsif not public.is_shared_farm_member(v_task.farm_id) then
+    raise exception 'You are not a member of this shared farm';
+  end if;
+
+  select completed_at into v_assignment_completed_at
+  from public.farm_task_assignments
+  where task_id = p_task_id and user_id = auth.uid()
+  for update;
+  if not found then
+    raise exception 'This task is not assigned to you';
+  end if;
+
+  if v_assignment_completed_at is not null then
+    update public.farm_task_assignments
+    set completed_at = null
+    where task_id = p_task_id and user_id = auth.uid();
+    if v_task.completion_mode = 'all' or v_task.completed_by = auth.uid() then
+      update public.farm_tasks
+      set completed_by = null, completed_at = null, updated_at = now()
+      where id = p_task_id;
+    else
+      update public.farm_tasks set updated_at = now() where id = p_task_id;
+    end if;
+    return;
+  end if;
+
+  if v_task.completed_at is not null then
+    raise exception 'This task has already been completed';
+  end if;
+  update public.farm_task_assignments
+  set completed_at = now()
+  where task_id = p_task_id and user_id = auth.uid();
+
+  if v_task.completion_mode = 'first' or not exists (
+    select 1 from public.farm_task_assignments
+    where task_id = p_task_id and completed_at is null
+  ) then
+    update public.farm_tasks
+    set completed_by = auth.uid(), completed_at = now(), updated_at = now()
+    where id = p_task_id;
+  else
+    update public.farm_tasks set updated_at = now() where id = p_task_id;
+  end if;
+end;
+$$;
+
 create or replace function public.update_farm_task(
   p_task_id uuid,
   p_title text,
@@ -869,6 +939,7 @@ revoke all on function public.set_farm_member_role(uuid, uuid, text) from public
 revoke all on function public.remove_farm_member(uuid, uuid) from public, anon;
 revoke all on function public.create_farm_task(uuid, text, text, text, text, uuid[]) from public, anon;
 revoke all on function public.complete_farm_task(uuid) from public, anon;
+revoke all on function public.toggle_farm_task(uuid) from public, anon;
 revoke all on function public.update_farm_task(uuid, text, text) from public, anon;
 revoke all on function public.delete_farm_task(uuid) from public, anon;
 revoke all on function public.record_focus(integer, uuid, text) from public, anon;
@@ -886,6 +957,7 @@ grant execute on function public.set_farm_member_role(uuid, uuid, text) to authe
 grant execute on function public.remove_farm_member(uuid, uuid) to authenticated;
 grant execute on function public.create_farm_task(uuid, text, text, text, text, uuid[]) to authenticated;
 grant execute on function public.complete_farm_task(uuid) to authenticated;
+grant execute on function public.toggle_farm_task(uuid) to authenticated;
 grant execute on function public.update_farm_task(uuid, text, text) to authenticated;
 grant execute on function public.delete_farm_task(uuid) to authenticated;
 grant execute on function public.record_focus(integer, uuid, text) to authenticated;

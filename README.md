@@ -8,7 +8,7 @@
 2. شغّل `npm install`.
 3. انسخ `.env.example` إلى `.env.local`. أضف عنوان Supabase ومفتاح `anon` (أو `publishable`).
 4. افتح SQL Editor في Supabase وشغّل محتوى `supabase/schema.sql`. يضيف الملف جداول النقاط ومراحل التركيز وشراء الأشجار، ويحافظ على الأشجار الموجودة.
-   بعد تحديث المشروع إلى هذا الإصدار، شغّل الملف مرة أخرى لتطبيق إضافات النقاط والمتجر.
+   شغّل الملف مرة أخرى بعد التحديثات التي تضيف مزايا قاعدة البيانات، ومنها النقاط والمتجر والتبديل بين إكمال المهمة وإلغاء إكمالها.
 5. من إعدادات Supabase Auth فعّل **Allow anonymous sign-ins**. لإبقاء المزرعة التجريبية نفسها عند الربط بحساب Google فعّل **manual identity linking**.
 6. لتفعيل Google، أضف Google كمزوّد OAuth في Supabase، واضبط Client ID/Secret ووجّه Google إلى callback الذي يعرضه Supabase. أضف عنوان التطبيق إلى **Redirect URLs** في إعدادات Supabase.
 7. شغّل `npm run dev` وافتح الرابط الذي يظهر في الطرفية.
