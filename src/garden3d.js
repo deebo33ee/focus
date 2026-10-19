@@ -83,7 +83,7 @@ function getTreeGeometry(shape) {
   }
 }
 
-// جزيرة خضراء + عشب يتحرك مع الهوا. بدون أشجار وبدون أي واجهة.
+// جزيرة وعشب متحرك، بينما تستقبل الأشجار من مخزون المزرعة.
 // الاستخدام: const garden = createGarden3D(document.getElementById('garden-3d'));
 // garden.dispose() لما تشيل العنصر.
 export function createGarden3D(container, options = {}) {
@@ -191,10 +191,15 @@ export function createGarden3D(container, options = {}) {
     lastX = ev.clientX;
     lastY = ev.clientY;
   };
+  const onWheel = (ev) => {
+    ev.preventDefault();
+    dist = Math.max(9, Math.min(60, dist + ev.deltaY * 0.02));
+  };
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointercancel', onUp);
   canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
 
   const resize = () => {
     const w = container.clientWidth || 1, h = container.clientHeight || 1;
@@ -252,6 +257,8 @@ export function createGarden3D(container, options = {}) {
     const trees = Object.keys(treeColors).flatMap((id) =>
       Array.from({ length: Math.max(0, Math.floor(Number(inventory[id] || 0))) }, () => id));
     const total = trees.length;
+    const countLabel = container.querySelector('#garden-3d-count');
+    if (countLabel) countLabel.textContent = `المزرعة فيها ${new Intl.NumberFormat('ar-EG').format(total)} شجرة`;
     const columns = Math.max(1, Math.ceil(Math.sqrt(total)));
     const rows = Math.max(1, Math.ceil(total / columns));
     const spacing = 4.5;
@@ -292,6 +299,12 @@ export function createGarden3D(container, options = {}) {
       mesh.receiveShadow = true;
       treeRoot.add(mesh);
     });
+    camera.position.set(
+      Math.sin(theta) * Math.sin(phi) * dist,
+      Math.cos(phi) * dist,
+      Math.cos(theta) * Math.sin(phi) * dist,
+    );
+    camera.lookAt(0, 1.2, 0);
     renderer.render(scene, camera);
   }
 
@@ -306,6 +319,7 @@ export function createGarden3D(container, options = {}) {
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('wheel', onWheel);
       canvas.remove();
       treeRoot.children.forEach((mesh) => {
         mesh.geometry.dispose();
