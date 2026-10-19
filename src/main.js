@@ -38,7 +38,7 @@ const freshState = () => ({
   selectedTree: 'oak',
   timer: {
     status: 'idle', phase: 'focus', durationSeconds: 1500, remainingSeconds: 1500,
-    deadline: null, plan: null, phaseId: null, lastAwardedMinute: 0,
+    deadline: null, plan: null, phaseId: null, phaseReady: true, lastAwardedMinute: 0,
   },
 });
 
@@ -74,6 +74,7 @@ function readState() {
         phase: previousTimer.phase || 'focus',
         plan: previousTimer.plan || null,
         phaseId: previousTimer.phaseId || null,
+        phaseReady: previousTimer.phaseReady ?? true,
         lastAwardedMinute: Number(previousTimer.lastAwardedMinute) || 0,
       },
     };
@@ -1234,8 +1235,19 @@ function beginPhase(phase, durationSeconds, autoStart = true) {
   state.timer.status = autoStart ? 'running' : 'idle';
   state.timer.deadline = autoStart ? Date.now() + durationSeconds * 1000 : null;
   state.timer.phaseId = phase === 'focus' ? crypto.randomUUID() : null;
+  state.timer.phaseReady = !syncEnabled || phase !== 'focus';
   state.timer.lastAwardedMinute = 0;
-  if (autoStart && state.timer.phaseId) void startPointPhase(state.timer.phaseId);
+  if (autoStart && state.timer.phaseId && syncEnabled) {
+    state.timer.phaseReady = false;
+    void startPointPhase(state.timer.phaseId).then(() => {
+      state.timer.phaseReady = true;
+      if (state.timer.phase === 'focus' && state.timer.status === 'running' && state.timer.deadline) {
+        processFocusMinuteAwards();
+      }
+    }).catch(() => {
+      state.timer.phaseReady = true;
+    });
+  }
   clearInterval(ticking);
   ticking = autoStart ? setInterval(tick, 250) : null;
   saveTimer();
@@ -1272,7 +1284,15 @@ function startTimer() {
     state.timer.status = 'running';
     state.timer.deadline = Date.now() + state.timer.remainingSeconds * 1000;
     if (state.timer.phase === 'focus' && state.timer.phaseId) {
-      void startPointPhase(state.timer.phaseId);
+      state.timer.phaseReady = false;
+      void startPointPhase(state.timer.phaseId).then(() => {
+        state.timer.phaseReady = true;
+        if (state.timer.phase === 'focus' && state.timer.status === 'running') {
+          processFocusMinuteAwards();
+        }
+      }).catch(() => {
+        state.timer.phaseReady = true;
+      });
     }
     ticking = setInterval(tick, 250);
   } else {
@@ -1296,6 +1316,7 @@ function resetTimer() {
     deadline: null,
     plan: null,
     phaseId: null,
+    phaseReady: true,
     lastAwardedMinute: 0,
   };
   saveTimer();
@@ -1318,6 +1339,7 @@ function tick() {
 
 function processFocusMinuteAwards() {
   if (state.timer.phase !== 'focus' || state.timer.status !== 'running' || !state.timer.phaseId) return;
+  if (syncEnabled && !state.timer.phaseReady) return;
   const remaining = Math.max(0, state.timer.deadline
     ? Math.ceil((state.timer.deadline - Date.now()) / 1000)
     : state.timer.remainingSeconds);
