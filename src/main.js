@@ -938,6 +938,7 @@ async function submitGardenTask(event) {
       }
       saveState();
       renderGardenTasks();
+      renderFocusTasks();
     }
     dialog.close();
     showToast(taskId ? 'اتحفظ تعديل المهمة.' : 'اتضافت المهمة بنجاح.');
@@ -966,6 +967,7 @@ async function completeGardenTask(taskId, scope) {
       saveState();
     }
     renderGardenTasks();
+    renderFocusTasks();
     showToast(scope === 'shared' ? 'اتسجل إنجازك في مهمة المزرعة.' : 'اتعلمت المهمة مكتملة ✓');
   } catch (error) {
     console.error('Could not complete the garden task.', error);
@@ -984,7 +986,9 @@ async function deleteGardenTask(taskId, scope) {
       state.personalTasks = state.personalTasks.filter((task) => task.id !== taskId);
       saveState();
     }
+    if (state.selectedFocusTask?.id === taskId) state.selectedFocusTask = null;
     renderGardenTasks();
+    renderFocusTasks();
     showToast('اتحذفت المهمة.');
   } catch (error) {
     console.error('Could not delete the garden task.', error);
@@ -1262,7 +1266,6 @@ function processFocusMinuteAwards() {
     state.timer.lastAwardedMinute += 1;
     awardFocusMinute(state.timer.phaseId, state.timer.lastAwardedMinute);
   }
-  saveState();
 }
 
 let pointAwardsFlushPromise = null;
@@ -1784,7 +1787,16 @@ function wireEvents() {
     showToast('خطة المهمة جاهزة. ابدأ لما تكون مستعد.');
   });
   $('#tree-purchase-destination').addEventListener('change', renderTreeCatalog);
-  window.addEventListener('online', () => { void flushPendingPointAwards(); });
+  window.addEventListener('online', () => {
+    const phaseId = state.timer.status === 'running' && state.timer.phase === 'focus'
+      ? state.timer.phaseId
+      : null;
+    if (phaseId) {
+      void startPointPhase(phaseId).then(() => flushPendingPointAwards());
+    } else {
+      void flushPendingPointAwards();
+    }
+  });
   $('#google-connect').addEventListener('click', linkGoogleAccount);
   $('#google-login').addEventListener('click', signInWithGoogle);
   $$('[data-add-task]').forEach((button) => {

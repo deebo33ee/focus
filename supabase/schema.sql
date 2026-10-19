@@ -212,6 +212,7 @@ declare
   v_phase public.focus_point_phases;
   v_available_minutes integer;
   v_next_minute integer;
+  v_already_awarded boolean;
 begin
   if auth.uid() is null then
     raise exception 'Authentication required';
@@ -224,11 +225,26 @@ begin
   from public.focus_point_phases
   where phase_id = p_phase_id and user_id = auth.uid()
   for update;
-  if not found or v_phase.active_since is null then
-    raise exception 'Focus phase is not active';
+  if not found then
+    raise exception 'Focus phase does not exist';
+  end if;
+  select exists (
+    select 1 from public.focus_point_awards
+    where user_id = auth.uid()
+      and phase_id = p_phase_id
+      and minute_number = p_minute_number
+  ) into v_already_awarded;
+  if v_already_awarded then
+    select points into v_points
+    from public.private_farms
+    where user_id = auth.uid();
+    return jsonb_build_object('awarded', false, 'points', coalesce(v_points, 0));
   end if;
   v_available_minutes := floor(
-    (v_phase.accumulated_seconds + extract(epoch from (now() - v_phase.active_since))) / 60
+    (v_phase.accumulated_seconds + case
+      when v_phase.active_since is null then 0
+      else extract(epoch from (now() - v_phase.active_since))
+    end) / 60
   );
   select coalesce(max(minute_number), 0) + 1 into v_next_minute
   from public.focus_point_awards
