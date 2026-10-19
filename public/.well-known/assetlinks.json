@@ -1,10 +1,10 @@
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "PACKAGE_NAME_HERE",
-      "sha256_cert_fingerprints": ["SHA256_FINGERPRINT_HERE"]
-    }
+
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.vercel.focus_nine_gold.twa",
+    "sha256_cert_fingerprints": ["F9:B6:31:8F:05:41:B8:A5:F2:46:BB:AF:6C:18:26:2A:6E:06:73:C5:01:61:65:5B:EE:43:1B:BF:F3:E5:99:5C"]
   }
-]
+}]
+
