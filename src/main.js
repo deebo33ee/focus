@@ -1,6 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { createGarden3D } from './garden3d.js';
 import './style.css';
 
@@ -35,7 +33,6 @@ const freshState = () => ({
   shareFocus: false,
   settings: { focusMinutes: 25, breakMinutes: 5 },
   taskTargetMinutes: 60,
-  selectedTree: 'oak',
   timer: {
     status: 'idle', phase: 'focus', durationSeconds: 1500, remainingSeconds: 1500,
     deadline: null, plan: null, phaseId: null, phaseReady: true, lastAwardedMinute: 0,
@@ -63,7 +60,6 @@ function readState() {
       privateFarm: savedFarm,
       sharedFarm: savedSharedFarm,
       taskTargetMinutes: Math.min(1440, Math.max(1, Number(stored.taskTargetMinutes) || 60)),
-      selectedTree: TREE_CATALOG.some((tree) => tree.id === stored.selectedTree) ? stored.selectedTree : 'oak',
       pendingPointAwards: Array.isArray(stored.pendingPointAwards) ? stored.pendingPointAwards : [],
       selectedFocusTask: stored.selectedFocusTask || null,
       timer: {
@@ -93,18 +89,6 @@ let realtimeFarmId = null;
 let onlineReady = Promise.resolve();
 let confirmationResolver = null;
 let garden3d = null;
-
-// Three.js 3D garden state
-let threeInitialized = false;
-let threeScene = null;
-let threeCamera = null;
-let threeRenderer = null;
-let threeControls = null;
-let threeAnimationId = null;
-let threeRoot = null;
-let threeGround = null;
-let threeGrass = null;
-let threeGrassMaterial = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -212,10 +196,6 @@ function sumTrees(inventory = {}) {
   return Object.values(inventory).reduce((total, count) => total + Number(count || 0), 0);
 }
 
-function selectedTree() {
-  return TREE_CATALOG.find((tree) => tree.id === state.selectedTree) || TREE_CATALOG[2];
-}
-
 function treeIllustration(tree, sapling = false) {
   if (sapling) {
     return '<svg viewBox="0 0 72 84" aria-hidden="true"><ellipse cx="36" cy="77" rx="18" ry="4" fill="#71934b" opacity=".22"/><path d="M36 75V48" stroke="#8a5d38" stroke-width="5" stroke-linecap="round"/><path d="M36 57C25 56 20 48 20 40c10 0 16 5 16 13Zm0-8c2-11 9-17 19-18 0 11-6 19-19 21Z" fill="#69a954"/><path d="M36 74h12" stroke="#9c7048" stroke-width="2" stroke-linecap="round"/></svg>';
@@ -290,343 +270,6 @@ function drawTrees(container, inventory = {}) {
     extra.textContent = `+${formatArabicNumber(count - visibleCount)}`;
     container.append(extra);
   }
-}
-
-/* 3D garden using Three.js */
-function init3DGarden(container) {
-  if (!container) return;
-  if (threeInitialized) return;
-  threeInitialized = true;
-  const width = container.clientWidth || container.offsetWidth || 800;
-  const height = container.clientHeight || container.offsetHeight || 400;
-  threeScene = new THREE.Scene();
-  threeScene.background = new THREE.Color(0x0a1f4a);
-  threeScene.fog = new THREE.Fog(0x0a1f4a, 26, 80);
-  threeCamera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
-  threeCamera.position.set(0, 18, 28);
-  threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  threeRenderer.setSize(width, height);
-  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  container.appendChild(threeRenderer.domElement);
-
-  const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x2d5a2d, 0.95);
-  threeScene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xfff4d6, 0.9);
-  dir.position.set(10, 20, 10);
-  dir.castShadow = true;
-  threeScene.add(dir);
-
-  threeGround = new THREE.Mesh(
-    new THREE.CylinderGeometry(11, 10.1, 1.2, 56),
-    [
-      new THREE.MeshStandardMaterial({ color: 0x5b3a21, flatShading: true }),
-      new THREE.MeshStandardMaterial({ color: 0x1f5a45, flatShading: true }),
-      new THREE.MeshStandardMaterial({ color: 0x2e241b, flatShading: true }),
-    ],
-  );
-  threeGround.position.y = -0.6;
-  threeGround.receiveShadow = true;
-  threeScene.add(threeGround);
-
-  const grassGeometry = new THREE.ConeGeometry(0.05, 0.6, 3);
-  grassGeometry.translate(0, 0.3, 0);
-  threeGrassMaterial = new THREE.MeshStandardMaterial({ color: 0x6cc27f, roughness: 1 });
-  threeGrassMaterial.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0 };
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-        float wind = sin(uTime * 2.0 + instanceMatrix[3].x * 0.7 + instanceMatrix[3].z * 0.5);
-        transformed.x += wind * 0.12 * position.y / 0.6;
-        transformed.z += wind * 0.06 * position.y / 0.6;`,
-      );
-    threeGrassMaterial.userData.shader = shader;
-  };
-  threeGrass = new THREE.InstancedMesh(grassGeometry, threeGrassMaterial, 5500);
-  const bladeMatrix = new THREE.Matrix4();
-  const bladePosition = new THREE.Vector3();
-  const bladeRotation = new THREE.Quaternion();
-  const bladeEuler = new THREE.Euler();
-  const bladeScale = new THREE.Vector3();
-  for (let index = 0; index < threeGrass.count; index += 1) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = Math.sqrt(Math.random()) * 10.5;
-    bladePosition.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-    bladeEuler.set(0, Math.random() * Math.PI * 2, 0);
-    bladeRotation.setFromEuler(bladeEuler);
-    bladeScale.set(1, 0.6 + Math.random() * 1.1, 1);
-    bladeMatrix.compose(bladePosition, bladeRotation, bladeScale);
-    threeGrass.setMatrixAt(index, bladeMatrix);
-  }
-  threeGrass.frustumCulled = false;
-  threeScene.add(threeGrass);
-
-  // root group for trees
-  threeRoot = new THREE.Group();
-  threeScene.add(threeRoot);
-
-  // controls
-  threeControls = new OrbitControls(threeCamera, threeRenderer.domElement);
-  threeControls.target.set(0, 3, 0);
-  threeControls.enableDamping = true;
-  threeControls.minDistance = 6;
-  threeControls.maxDistance = 5000;
-  threeControls.maxPolarAngle = Math.PI / 2 - 0.1;
-
-  window.addEventListener('resize', onResize3D);
-  update3DGarden();
-  animate3D();
-}
-
-function treeModel(typeKey) {
-  const part = (shape, x, y, z, sx, sy, sz, color, rx = 0, rz = 0) => ({
-    shape, x, y, z, sx, sy, sz, color, rx, rz,
-  });
-  const trunk = part('trunk', 0, 0.9, 0, 1, 1, 1, 0x815334);
-  const round = (x, y, z, size, color) => part('round', x, y, z, size, size, size, color);
-  const conifer = (y, size, color) => part('cone', 0, y, 0, size, size, size, color);
-  const colors = {
-    olive: [0x718e3e, 0x91aa53, 0x627b37],
-    apple: [0x69a743, 0x87bd4e, 0xe95449],
-    oak: [0x427e3c, 0x609547, 0x78a94c],
-    pine: [0x236c4a, 0x31895a, 0x4c9b64],
-    palm: [0x3b9a50, 0x65b957, 0x8acb63],
-    bamboo: [0x75ad45, 0x9ac85a, 0x4b8b43],
-    cherry: [0xe987aa, 0xf4afc5, 0xd96e96],
-    maple: [0xc85830, 0xe8833b, 0xf0ad45],
-    cypress: [0x246b50, 0x347f5d, 0x48936a],
-    baobab: [0x79964c, 0x92ad60, 0x5f7d43],
-    mangrove: [0x378565, 0x56a77a, 0x78bb83],
-    redwood: [0x356d48, 0x4b8956, 0x6ca364],
-  }[typeKey] || [0x427e3c, 0x609547, 0x78a94c];
-  const leaf = (x, y, z, size, color = colors[0]) => round(x, y, z, size, color);
-
-  switch (typeKey) {
-    case 'olive':
-      return [
-        part('trunk', 0, 0.9, 0, 1, 1, 1, 0x795235),
-        leaf(-0.48, 2.75, 0, 1.45, colors[0]), leaf(0.42, 3.05, 0, 1.55, colors[1]),
-        leaf(0, 3.75, 0, 1.35, colors[0]), leaf(0.65, 2.55, 0.15, 1.05, colors[2]),
-      ];
-    case 'apple':
-      return [
-        trunk, leaf(-0.45, 2.75, 0, 1.5, colors[0]), leaf(0.45, 2.85, 0, 1.55, colors[1]),
-        leaf(0, 3.65, 0, 1.45, colors[0]),
-        part('fruit', -0.65, 2.72, 0.58, 0.19, 0.19, 0.19, colors[2]),
-        part('fruit', 0.5, 3.25, 0.52, 0.18, 0.18, 0.18, colors[2]),
-        part('fruit', 0.1, 2.45, -0.63, 0.18, 0.18, 0.18, colors[2]),
-      ];
-    case 'oak':
-      return [
-        trunk, leaf(-0.55, 2.7, 0, 1.65, colors[0]), leaf(0.5, 2.75, 0.05, 1.65, colors[1]),
-        leaf(0, 3.55, 0, 1.8, colors[0]), leaf(0, 2.65, -0.55, 1.35, colors[2]),
-      ];
-    case 'pine':
-      return [trunk, conifer(2.15, 1.5, colors[0]), conifer(3.05, 1.22, colors[1]), conifer(3.8, 0.92, colors[2])];
-    case 'palm': {
-      const parts = [part('palm-trunk', 0, 1.45, 0, 1, 1, 1, 0x9b7047)];
-      for (let index = 0; index < 8; index += 1) {
-        const angle = (index / 8) * Math.PI * 2;
-        parts.push(part(
-          'palm-leaf',
-          Math.cos(angle) * 0.8,
-          3.05 - (index % 2) * 0.18,
-          Math.sin(angle) * 0.8,
-          0.7, 1.45, 0.7, index % 2 ? colors[0] : colors[1],
-          Math.cos(angle) * 0.62,
-          Math.sin(angle) * -0.62,
-        ));
-      }
-      return parts;
-    }
-    case 'bamboo':
-      return [
-        part('bamboo-stem', -0.35, 1.8, 0, 0.75, 1, 0.75, colors[0]),
-        part('bamboo-stem', 0.15, 1.8, 0.05, 0.75, 1, 0.75, colors[1]),
-        part('bamboo-stem', 0.55, 1.65, -0.08, 0.75, 0.92, 0.75, colors[0]),
-        part('bamboo-leaf', -0.5, 3.3, 0, 0.5, 0.75, 0.5, colors[2], 0, -0.8),
-        part('bamboo-leaf', 0.45, 3.55, 0.05, 0.5, 0.8, 0.5, colors[1], 0, 0.8),
-        part('bamboo-leaf', 0.1, 2.95, -0.2, 0.5, 0.7, 0.5, colors[2], 0, 0.65),
-      ];
-    case 'cherry':
-      return [
-        trunk, leaf(-0.4, 2.75, 0, 1.45, colors[0]), leaf(0.48, 2.8, 0.05, 1.45, colors[1]),
-        leaf(0, 3.6, 0, 1.55, colors[0]), leaf(0, 2.55, -0.45, 1.2, colors[2]),
-      ];
-    case 'maple':
-      return [trunk, part('maple-crown', 0, 3.05, 0, 1.75, 1.3, 1.45, colors[0])];
-    case 'cypress':
-      return [trunk, conifer(2.45, 1.15, colors[0]), conifer(3.25, 0.92, colors[1]), conifer(4, 0.7, colors[2])];
-    case 'baobab':
-      return [
-        part('baobab-trunk', 0, 1.15, 0, 1, 1, 1, 0x8d6944),
-        leaf(-0.55, 3.2, 0, 1.25, colors[0]), leaf(0.48, 3.25, 0, 1.3, colors[1]),
-        leaf(0, 3.75, 0, 1.18, colors[2]),
-      ];
-    case 'mangrove':
-      return [
-        trunk,
-        part('root', -0.55, 0.62, 0, 0.42, 1.2, 0.42, 0x8a6344, 0, -0.35),
-        part('root', 0.55, 0.62, 0, 0.42, 1.2, 0.42, 0x8a6344, 0, 0.35),
-        part('root', 0, 0.62, -0.52, 0.42, 1.2, 0.42, 0x8a6344, 0.35),
-        leaf(-0.42, 2.8, 0, 1.35, colors[0]), leaf(0.46, 2.85, 0, 1.4, colors[1]),
-        leaf(0, 3.55, 0, 1.3, colors[2]),
-      ];
-    case 'redwood':
-      return [
-        part('redwood-trunk', 0, 1.8, 0, 1, 1, 1, 0x81573d),
-        conifer(3.45, 1.18, colors[0]), conifer(4.15, 0.93, colors[1]), conifer(4.8, 0.7, colors[2]),
-      ];
-    default:
-      return [trunk, round(0, 3, 0, 1.5, colors[0])];
-  }
-}
-
-function treePartGeometry(shape) {
-  switch (shape) {
-    case 'trunk': return new THREE.CylinderGeometry(0.19, 0.3, 1.8, 7);
-    case 'fruit': return new THREE.SphereGeometry(0.5, 7, 6);
-    case 'cone': return new THREE.ConeGeometry(1, 2, 8);
-    case 'palm-trunk': return new THREE.CylinderGeometry(0.2, 0.28, 2.9, 7);
-    case 'palm-leaf': return new THREE.ConeGeometry(0.32, 2.2, 5);
-    case 'bamboo-stem': return new THREE.CylinderGeometry(0.15, 0.2, 2.9, 6);
-    case 'bamboo-leaf': return new THREE.ConeGeometry(0.22, 1.5, 5);
-    case 'maple-crown': return new THREE.DodecahedronGeometry(1);
-    case 'baobab-trunk': return new THREE.CylinderGeometry(0.48, 0.58, 2.3, 8);
-    case 'root': return new THREE.CylinderGeometry(0.05, 0.22, 1.2, 5);
-    case 'redwood-trunk': return new THREE.CylinderGeometry(0.38, 0.48, 3.6, 8);
-    default: return new THREE.SphereGeometry(1, 8, 7);
-  }
-}
-
-function update3DGarden() {
-  if (!threeInitialized || !threeRoot) return;
-  threeRoot.children.forEach((mesh) => {
-    mesh.geometry.dispose();
-    mesh.material.dispose();
-  });
-  threeRoot.clear();
-  const inventory = state.privateFarm.tree_inventory || {};
-  const trees = TREE_CATALOG.flatMap((tree) =>
-    Array.from({ length: Math.max(0, Math.floor(Number(inventory[tree.id] || 0))) }, () => tree));
-  const total = trees.length;
-  const spacing = 4.5;
-  const columns = Math.max(1, Math.ceil(Math.sqrt(total)));
-  const rows = Math.max(1, Math.ceil(total / columns));
-  const width = columns * spacing;
-  const depth = rows * spacing;
-  const radius = Math.max(11, Math.hypot(width / 2, depth / 2) + 4);
-  const scale = radius / 11;
-  if (threeGround) threeGround.scale.set(scale, 1, scale);
-  if (threeGrass) threeGrass.scale.set(scale, 1, scale);
-  setText('#garden-3d-count', `المزرعة فيها ${formatArabicNumber(total)} شجرة`);
-
-  if (!total) {
-    threeControls.target.set(0, 1.5, 0);
-    threeCamera.position.set(0, 14, 24);
-    threeControls.update();
-    return;
-  }
-
-  const batches = new Map();
-  const dummy = new THREE.Object3D();
-  const treeIndices = new Map();
-  const models = new Map(TREE_CATALOG.map((tree) => [tree.id, treeModel(tree.id)]));
-  trees.forEach((tree, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    const x = (col - (columns - 1) / 2) * spacing;
-    const z = (row - (rows - 1) / 2) * spacing;
-    const sameTypeIndex = treeIndices.get(tree.id) || 0;
-    treeIndices.set(tree.id, sameTypeIndex + 1);
-    const variation = 0.88 + ((sameTypeIndex * 37 + tree.id.length * 13) % 25) / 100;
-    const rotation = ((sameTypeIndex * 137 + tree.id.length * 17) % 360) * (Math.PI / 180);
-
-    models.get(tree.id).forEach((treePart, partIndex) => {
-      const key = `${tree.id}-${partIndex}`;
-      let batch = batches.get(key);
-      if (!batch) {
-        batch = {
-          geometry: treePartGeometry(treePart.shape),
-          material: new THREE.MeshStandardMaterial({ color: treePart.color, roughness: 0.9 }),
-          parts: [],
-        };
-        batches.set(key, batch);
-      }
-      const localX = treePart.x * variation;
-      const localZ = treePart.z * variation;
-      const rotatedX = localX * Math.cos(rotation) - localZ * Math.sin(rotation);
-      const rotatedZ = localX * Math.sin(rotation) + localZ * Math.cos(rotation);
-      dummy.position.set(x + rotatedX, treePart.y * variation, z + rotatedZ);
-      dummy.rotation.set(treePart.rx, rotation, treePart.rz);
-      dummy.scale.set(
-        treePart.sx * variation,
-        treePart.sy * variation,
-        treePart.sz * variation,
-      );
-      dummy.updateMatrix();
-      batch.parts.push(dummy.matrix.clone());
-    });
-  });
-
-  batches.forEach(({ geometry, material, parts }) => {
-    const mesh = new THREE.InstancedMesh(geometry, material, parts.length);
-    parts.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    threeRoot.add(mesh);
-  });
-
-  const span = Math.max(width, depth);
-  const distance = Math.max(22, span * Math.max(1.35, 1.4 / threeCamera.aspect));
-  threeControls.target.set(0, 2, 0);
-  threeCamera.position.set(distance * 0.48, distance * 0.7, distance);
-  threeCamera.far = Math.max(5000, distance * 10);
-  threeCamera.updateProjectionMatrix();
-  threeControls.maxDistance = Math.max(5000, distance * 3);
-  threeControls.update();
-}
-
-function animate3D() {
-  threeAnimationId = requestAnimationFrame(animate3D);
-  if (threeControls) threeControls.update();
-  if (threeGrassMaterial?.userData.shader) {
-    threeGrassMaterial.userData.shader.uniforms.uTime.value = performance.now() / 1000;
-  }
-  if (threeRenderer && threeScene && threeCamera) threeRenderer.render(threeScene, threeCamera);
-}
-
-function onResize3D() {
-  if (!threeRenderer || !threeCamera) return;
-  const container = threeRenderer.domElement.parentElement;
-  if (!container) return;
-  const w = container.clientWidth;
-  const h = container.clientHeight;
-  threeCamera.aspect = w / h;
-  threeCamera.updateProjectionMatrix();
-  threeRenderer.setSize(w, h);
-}
-
-function dispose3D() {
-  if (!threeInitialized) return;
-  cancelAnimationFrame(threeAnimationId);
-  window.removeEventListener('resize', onResize3D);
-  if (threeRenderer && threeRenderer.domElement && threeRenderer.domElement.parentElement) {
-    threeRenderer.domElement.parentElement.removeChild(threeRenderer.domElement);
-  }
-  if (threeGround) {
-    threeGround.geometry.dispose();
-    threeGround.material.forEach((material) => material.dispose());
-  }
-  if (threeGrass) {
-    threeGrass.geometry.dispose();
-    threeGrass.material.dispose();
-  }
-  threeScene = threeCamera = threeRenderer = threeControls = threeRoot = null;
-  threeGround = threeGrass = threeGrassMaterial = null;
-  threeInitialized = false;
 }
 
 function render() {
