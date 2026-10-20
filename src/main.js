@@ -31,7 +31,7 @@ const freshState = () => ({
   pendingPointAwards: [],
   selectedFocusTask: null,
   shareFocus: false,
-  settings: { focusMinutes: 25, breakMinutes: 5 },
+  settings: { focusMinutes: 25, breakMinutes: 5, soundEnabled: true },
   taskTargetMinutes: 60,
   timer: {
     status: 'idle', phase: 'focus', durationSeconds: 1500, remainingSeconds: 1500,
@@ -89,6 +89,7 @@ let realtimeFarmId = null;
 let onlineReady = Promise.resolve();
 let confirmationResolver = null;
 let garden3d = null;
+let audioContext = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -121,6 +122,59 @@ function showToast(message, isError = false) {
   dom.toast.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => dom.toast.classList.remove('visible'), 3300);
+}
+
+function getAudioContext() {
+  if (!window.AudioContext) return null;
+  audioContext ||= new window.AudioContext();
+  return audioContext;
+}
+
+function unlockAudio() {
+  try {
+    const context = getAudioContext();
+    if (context?.state === 'suspended') {
+      void context.resume().catch((error) => console.warn('Sound effects are unavailable.', error));
+    }
+  } catch (error) {
+    console.warn('Sound effects are unavailable.', error);
+  }
+}
+
+function playSound(effect) {
+  if (!state.settings.soundEnabled) return;
+  try {
+    const context = getAudioContext();
+    if (!context) return;
+    if (context.state === 'suspended') {
+      void context.resume().catch((error) => console.warn('Sound effects are unavailable.', error));
+    }
+    const notes = {
+      start: [523.25],
+      pause: [392],
+      complete: [523.25, 659.25, 783.99],
+      task: [659.25, 783.99],
+      purchase: [587.33, 739.99, 880],
+    }[effect];
+    if (!notes) return;
+    const now = context.currentTime;
+    notes.forEach((frequency, index) => {
+      const startAt = now + index * 0.12;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.09, startAt + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.22);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + 0.23);
+    });
+  } catch (error) {
+    console.warn('Could not play a sound effect.', error);
+  }
 }
 
 function confirmAction(message, confirmLabel, title = 'تأكيد الإجراء') {
@@ -316,6 +370,7 @@ function render() {
   $('#invite-empty').classList.toggle('visible', !shared);
   $('#share-focus-toggle').checked = Boolean(state.shareFocus && shared);
   $('#share-focus-toggle').disabled = !shared;
+  $('#sound-effects-toggle').checked = state.settings.soundEnabled;
   if (document.activeElement !== $('#setting-focus-minutes')) $('#setting-focus-minutes').value = state.settings.focusMinutes;
   if (document.activeElement !== $('#setting-break-minutes')) $('#setting-break-minutes').value = state.settings.breakMinutes;
   if (document.activeElement !== $('#task-minutes')) $('#task-minutes').value = state.taskTargetMinutes;
@@ -743,6 +798,7 @@ async function toggleGardenTaskCompletion(taskId, scope) {
     }
     renderGardenTasks();
     renderFocusTasks();
+    playSound(stillCompleted ? 'task' : 'pause');
     showToast(stillCompleted ? 'اتعلمت المهمة مكتملة ✓' : 'تم إلغاء إكمال المهمة.');
   } catch (error) {
     console.error('Could not toggle the garden task completion.', error);
@@ -874,6 +930,7 @@ async function purchaseTree(treeId) {
       });
       if (error) throw error;
       await loadFarmData();
+      playSound('purchase');
       showToast(`اشتريت شجرة ${tree.name} بنجاح 🌱`);
     } catch (error) {
       console.error('Could not purchase the tree.', error);
@@ -887,6 +944,7 @@ async function purchaseTree(treeId) {
   farm.tree_inventory[tree.id] = Number(farm.tree_inventory[tree.id] || 0) + 1;
   saveState();
   render();
+  playSound('purchase');
   showToast(`اشتريت شجرة ${tree.name} بنجاح 🌱`);
 }
 
@@ -971,6 +1029,7 @@ function beginPhase(phase, durationSeconds, autoStart = true) {
   ticking = autoStart ? setInterval(tick, 250) : null;
   saveTimer();
   renderTimer();
+  if (autoStart) playSound('start');
 }
 
 function beginFocusBlock(autoStart = true) {
@@ -999,6 +1058,7 @@ function startTimer() {
     state.timer.deadline = null;
     clearInterval(ticking);
     ticking = null;
+    playSound('pause');
   } else if (state.timer.status === 'paused') {
     state.timer.status = 'running';
     state.timer.deadline = Date.now() + state.timer.remainingSeconds * 1000;
@@ -1014,6 +1074,7 @@ function startTimer() {
       });
     }
     ticking = setInterval(tick, 250);
+    playSound('start');
   } else {
     beginFocusBlock();
     return;
@@ -1150,6 +1211,7 @@ async function completePhase() {
     beginFocusBlock();
     return;
   }
+  playSound('complete');
   if (!state.timer.plan) {
     state.timer.plan = {
       targetSeconds: state.timer.durationSeconds,
@@ -1598,6 +1660,8 @@ function saveTaskTarget() {
 }
 
 function wireEvents() {
+  document.addEventListener('pointerdown', unlockAudio, { once: true });
+  document.addEventListener('keydown', unlockAudio, { once: true });
   dom.confirmationDialog.addEventListener('close', () => {
     confirmationResolver?.(dom.confirmationDialog.returnValue === 'confirm');
     confirmationResolver = null;
@@ -1611,6 +1675,12 @@ function wireEvents() {
   });
   $('#setting-focus-minutes').addEventListener('change', saveFocusSettings);
   $('#setting-break-minutes').addEventListener('change', saveFocusSettings);
+  $('#sound-effects-toggle').addEventListener('change', (event) => {
+    state.settings.soundEnabled = event.target.checked;
+    saveState();
+    if (state.settings.soundEnabled) playSound('start');
+    showToast(state.settings.soundEnabled ? 'المؤثرات الصوتية مفعّلة.' : 'المؤثرات الصوتية متوقفة.');
+  });
   $('#task-minutes').addEventListener('change', saveTaskTarget);
   $('#calculate-plan').addEventListener('click', () => {
     if (!saveTaskTarget()) return;
